@@ -1,0 +1,480 @@
+package server
+
+import (
+	"html/template"
+
+	"github.com/zhanglpg/md-serve/render"
+)
+
+type pageData struct {
+	SiteTitle   string
+	PageTitle   string
+	Content     template.HTML
+	TOC         []render.TOCEntry
+	Breadcrumbs []Breadcrumb
+}
+
+type dirData struct {
+	SiteTitle   string
+	DirName     string
+	Dirs        []DirEntry
+	Files       []DirEntry
+	Breadcrumbs []Breadcrumb
+}
+
+type searchData struct {
+	SiteTitle string
+	Query     string
+	Results   []searchResult
+}
+
+const baseCSS = `
+:root {
+  --bg: #ffffff;
+  --bg-secondary: #f8f9fa;
+  --bg-tertiary: #e9ecef;
+  --text: #212529;
+  --text-secondary: #6c757d;
+  --accent: #7c3aed;
+  --accent-light: #ede9fe;
+  --border: #dee2e6;
+  --link: #6d28d9;
+  --link-hover: #5b21b6;
+  --code-bg: #282a36;
+  --callout-info: #dbeafe;
+  --callout-warning: #fef3c7;
+  --callout-danger: #fee2e2;
+  --callout-tip: #d1fae5;
+  --callout-note: #e0e7ff;
+  --callout-example: #fae8ff;
+  --mark-bg: #fef08a;
+  --sidebar-width: 260px;
+  --toc-width: 240px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1a1b26;
+    --bg-secondary: #24283b;
+    --bg-tertiary: #343a52;
+    --text: #c0caf5;
+    --text-secondary: #565f89;
+    --accent: #bb9af7;
+    --accent-light: #2d2054;
+    --border: #3b4261;
+    --link: #bb9af7;
+    --link-hover: #9d7cd8;
+    --code-bg: #1a1b26;
+    --callout-info: #1e3a5f;
+    --callout-warning: #3d2e00;
+    --callout-danger: #3d1515;
+    --callout-tip: #0d3b2a;
+    --callout-note: #1e2456;
+    --callout-example: #2e1541;
+    --mark-bg: #854d0e;
+  }
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Noto Sans', sans-serif;
+  color: var(--text);
+  background: var(--bg);
+  line-height: 1.7;
+  font-size: 16px;
+}
+
+a { color: var(--link); text-decoration: none; }
+a:hover { color: var(--link-hover); text-decoration: underline; }
+
+.layout {
+  display: flex;
+  min-height: 100vh;
+}
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  padding: 0.5rem 1.5rem;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.topbar .site-title {
+  font-weight: 700;
+  font-size: 1.1rem;
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.topbar .search-form {
+  flex: 1;
+  max-width: 400px;
+}
+
+.topbar .search-form input {
+  width: 100%;
+  padding: 0.4rem 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 0.9rem;
+}
+
+.breadcrumbs {
+  padding: 0.5rem 0;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+.breadcrumbs a { color: var(--text-secondary); }
+.breadcrumbs a:hover { color: var(--accent); }
+.breadcrumbs .sep { margin: 0 0.3rem; }
+
+.main-content {
+  flex: 1;
+  min-width: 0;
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 1rem 2rem 3rem;
+}
+
+/* Table of Contents */
+.toc-sidebar {
+  position: sticky;
+  top: 60px;
+  width: var(--toc-width);
+  max-height: calc(100vh - 80px);
+  overflow-y: auto;
+  padding: 1rem;
+  font-size: 0.82rem;
+  flex-shrink: 0;
+  border-left: 1px solid var(--border);
+}
+.toc-sidebar .toc-title {
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  font-size: 0.72rem;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.5rem;
+}
+.toc-sidebar ul { list-style: none; }
+.toc-sidebar li { padding: 0.15rem 0; }
+.toc-sidebar a {
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.toc-sidebar a:hover { color: var(--accent); text-decoration: none; }
+.toc-level-2 { padding-left: 0; }
+.toc-level-3 { padding-left: 0.8rem; }
+.toc-level-4 { padding-left: 1.6rem; }
+.toc-level-5 { padding-left: 2.4rem; }
+.toc-level-6 { padding-left: 3.2rem; }
+
+@media (max-width: 1100px) {
+  .toc-sidebar { display: none; }
+}
+
+/* Markdown Content Styles */
+.md-content h1, .md-content h2, .md-content h3,
+.md-content h4, .md-content h5, .md-content h6 {
+  margin-top: 1.5em;
+  margin-bottom: 0.5em;
+  font-weight: 600;
+  line-height: 1.3;
+}
+.md-content h1 { font-size: 2em; border-bottom: 2px solid var(--border); padding-bottom: 0.3em; }
+.md-content h2 { font-size: 1.5em; border-bottom: 1px solid var(--border); padding-bottom: 0.2em; }
+.md-content h3 { font-size: 1.25em; }
+.md-content h4 { font-size: 1.1em; }
+
+.md-content p { margin: 0.8em 0; }
+
+.md-content img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 6px;
+}
+
+.md-content blockquote {
+  border-left: 4px solid var(--accent);
+  margin: 1em 0;
+  padding: 0.5em 1em;
+  background: var(--bg-secondary);
+  border-radius: 0 6px 6px 0;
+}
+
+.md-content pre {
+  background: var(--code-bg);
+  border-radius: 8px;
+  padding: 1em;
+  overflow-x: auto;
+  margin: 1em 0;
+  font-size: 0.9em;
+}
+.md-content code {
+  font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', Consolas, monospace;
+  font-size: 0.9em;
+}
+.md-content :not(pre) > code {
+  background: var(--bg-tertiary);
+  padding: 0.15em 0.4em;
+  border-radius: 4px;
+}
+
+.md-content table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 1em 0;
+}
+.md-content th, .md-content td {
+  border: 1px solid var(--border);
+  padding: 0.5em 0.8em;
+  text-align: left;
+}
+.md-content th {
+  background: var(--bg-secondary);
+  font-weight: 600;
+}
+.md-content tr:nth-child(even) { background: var(--bg-secondary); }
+
+.md-content ul, .md-content ol { padding-left: 1.5em; margin: 0.5em 0; }
+.md-content li { margin: 0.25em 0; }
+
+.md-content input[type="checkbox"] {
+  margin-right: 0.4em;
+  accent-color: var(--accent);
+}
+
+.md-content hr {
+  border: none;
+  border-top: 2px solid var(--border);
+  margin: 2em 0;
+}
+
+.md-content mark {
+  background: var(--mark-bg);
+  padding: 0.1em 0.2em;
+  border-radius: 2px;
+}
+
+/* Wikilinks */
+.md-content .wikilink {
+  color: var(--accent);
+  border-bottom: 1px dashed var(--accent);
+}
+.md-content .wikilink:hover { border-bottom-style: solid; }
+
+/* Callouts (Obsidian-style) */
+.md-content .callout {
+  border-left: 4px solid;
+  border-radius: 0 8px 8px 0;
+  margin: 1em 0;
+  padding: 0.8em 1em;
+}
+.md-content .callout-title {
+  font-weight: 600;
+  margin-bottom: 0.3em;
+  display: flex;
+  align-items: center;
+  gap: 0.4em;
+}
+.md-content .callout-info { border-color: #3b82f6; background: var(--callout-info); }
+.md-content .callout-warning { border-color: #f59e0b; background: var(--callout-warning); }
+.md-content .callout-danger, .md-content .callout-error { border-color: #ef4444; background: var(--callout-danger); }
+.md-content .callout-tip, .md-content .callout-hint { border-color: #10b981; background: var(--callout-tip); }
+.md-content .callout-note { border-color: #6366f1; background: var(--callout-note); }
+.md-content .callout-example { border-color: #a855f7; background: var(--callout-example); }
+.md-content .callout-abstract, .md-content .callout-summary { border-color: #06b6d4; background: var(--callout-info); }
+.md-content .callout-question, .md-content .callout-faq { border-color: #f59e0b; background: var(--callout-warning); }
+.md-content .callout-success, .md-content .callout-check { border-color: #10b981; background: var(--callout-tip); }
+.md-content .callout-failure, .md-content .callout-fail { border-color: #ef4444; background: var(--callout-danger); }
+.md-content .callout-bug { border-color: #ef4444; background: var(--callout-danger); }
+.md-content .callout-quote, .md-content .callout-cite { border-color: var(--text-secondary); background: var(--bg-secondary); }
+
+/* Math via KaTeX */
+.katex-display { overflow-x: auto; overflow-y: hidden; padding: 0.5em 0; }
+
+/* Mermaid diagrams */
+.mermaid { margin: 1em 0; text-align: center; }
+
+/* Footnotes */
+.footnotes { margin-top: 2em; border-top: 1px solid var(--border); padding-top: 1em; font-size: 0.9em; }
+
+/* Directory listing */
+.dir-list { list-style: none; padding: 0; }
+.dir-list li {
+  border-bottom: 1px solid var(--border);
+}
+.dir-list a {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.6rem 0.4rem;
+  color: var(--text);
+  transition: background 0.15s;
+}
+.dir-list a:hover {
+  background: var(--bg-secondary);
+  text-decoration: none;
+}
+.dir-list .icon { font-size: 1.2rem; width: 1.5rem; text-align: center; }
+.dir-list .name { flex: 1; }
+.dir-list .size { color: var(--text-secondary); font-size: 0.85rem; }
+.dir-list .dir-name { font-weight: 600; }
+
+/* Search */
+.search-results { list-style: none; padding: 0; }
+.search-results li { margin: 1em 0; padding-bottom: 1em; border-bottom: 1px solid var(--border); }
+.search-results .result-title { font-weight: 600; font-size: 1.1em; }
+.search-results .result-path { font-size: 0.8em; color: var(--text-secondary); }
+.search-results .result-snippet { font-size: 0.9em; color: var(--text-secondary); margin-top: 0.3em; }
+`
+
+var pageTmpl = template.Must(template.New("page").Parse(`<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{.PageTitle}} - {{.SiteTitle}}</title>
+<style>` + baseCSS + `</style>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+</head>
+<body>
+<div class="topbar">
+  <a href="/" class="site-title">{{.SiteTitle}}</a>
+  <form class="search-form" action="/search" method="get">
+    <input type="text" name="q" placeholder="Search files..." autocomplete="off">
+  </form>
+</div>
+<div class="layout">
+  <div class="main-content">
+    <nav class="breadcrumbs">
+      {{range $i, $b := .Breadcrumbs}}{{if $i}}<span class="sep">/</span>{{end}}<a href="{{$b.Path}}">{{$b.Name}}</a>{{end}}
+    </nav>
+    <article class="md-content">
+      {{.Content}}
+    </article>
+  </div>
+  {{if .TOC}}
+  <aside class="toc-sidebar">
+    <div class="toc-title">On this page</div>
+    <ul>
+      {{range .TOC}}
+      <li class="toc-level-{{.Level}}"><a href="#{{.ID}}">{{.Title}}</a></li>
+      {{end}}
+    </ul>
+  </aside>
+  {{end}}
+</div>
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>
+document.addEventListener("DOMContentLoaded", function() {
+  // Render LaTeX math
+  renderMathInElement(document.querySelector('.md-content'), {
+    delimiters: [
+      {left: '$$', right: '$$', display: true},
+      {left: '$', right: '$', display: false},
+      {left: '\\[', right: '\\]', display: true},
+      {left: '\\(', right: '\\)', display: false}
+    ],
+    throwOnError: false
+  });
+  // Render Mermaid diagrams
+  var codeBlocks = document.querySelectorAll('pre > code.language-mermaid');
+  codeBlocks.forEach(function(block) {
+    var pre = block.parentElement;
+    var div = document.createElement('div');
+    div.className = 'mermaid';
+    div.textContent = block.textContent;
+    pre.parentNode.replaceChild(div, pre);
+  });
+  if (document.querySelector('.mermaid')) {
+    mermaid.initialize({ startOnLoad: true, theme: window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default' });
+  }
+});
+</script>
+</body>
+</html>`))
+
+var dirTmpl = template.Must(template.New("dir").Parse(`<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{.DirName}} - {{.SiteTitle}}</title>
+<style>` + baseCSS + `</style>
+</head>
+<body>
+<div class="topbar">
+  <a href="/" class="site-title">{{.SiteTitle}}</a>
+  <form class="search-form" action="/search" method="get">
+    <input type="text" name="q" placeholder="Search files..." autocomplete="off">
+  </form>
+</div>
+<div class="layout">
+  <div class="main-content">
+    <nav class="breadcrumbs">
+      {{range $i, $b := .Breadcrumbs}}{{if $i}}<span class="sep">/</span>{{end}}<a href="{{$b.Path}}">{{$b.Name}}</a>{{end}}
+    </nav>
+    <h1>{{.DirName}}</h1>
+    <ul class="dir-list">
+      {{range .Dirs}}
+      <li><a href="{{.Path}}"><span class="icon">📁</span><span class="name dir-name">{{.Name}}</span></a></li>
+      {{end}}
+      {{range .Files}}
+      <li><a href="{{.Path}}"><span class="icon">📄</span><span class="name">{{.Name}}</span><span class="size">{{.Size}}</span></a></li>
+      {{end}}
+    </ul>
+  </div>
+</div>
+</body>
+</html>`))
+
+var searchTmpl = template.Must(template.New("search").Parse(`<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Search: {{.Query}} - {{.SiteTitle}}</title>
+<style>` + baseCSS + `</style>
+</head>
+<body>
+<div class="topbar">
+  <a href="/" class="site-title">{{.SiteTitle}}</a>
+  <form class="search-form" action="/search" method="get">
+    <input type="text" name="q" value="{{.Query}}" placeholder="Search files..." autocomplete="off">
+  </form>
+</div>
+<div class="layout">
+  <div class="main-content">
+    <h1>Search results for "{{.Query}}"</h1>
+    {{if .Results}}
+    <ul class="search-results">
+      {{range .Results}}
+      <li>
+        <a href="{{.Path}}" class="result-title">{{.Name}}</a>
+        <div class="result-path">{{.Path}}</div>
+        <div class="result-snippet">...{{.Snippet}}...</div>
+      </li>
+      {{end}}
+    </ul>
+    {{else}}
+    <p>No results found.</p>
+    {{end}}
+  </div>
+</div>
+</body>
+</html>`))
