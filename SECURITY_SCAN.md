@@ -1,0 +1,97 @@
+# Security Dependency Scan Report
+
+**Date:** 2026-03-07
+**Project:** md-serve
+**Go Version:** 1.24.7
+
+## Dependencies
+
+| Package | Version | Latest | Direct/Indirect |
+|---------|---------|--------|-----------------|
+| github.com/yuin/goldmark | v1.7.16 | v1.7.16 | Direct |
+| github.com/yuin/goldmark-highlighting/v2 | v2.0.0-20230729 | - | Direct |
+| github.com/alecthomas/chroma/v2 | v2.2.0 | v2.23.1 | Indirect |
+| github.com/dlclark/regexp2 | v1.7.0 | v1.11.5 | Indirect |
+
+## Vulnerability Findings
+
+### No Direct CVEs Found
+
+No CVEs were found targeting any of the four dependencies in the Go Vulnerability Database, NVD, or GitHub Security Advisories.
+
+### Indirect / Go Toolchain Vulnerability
+
+Several CVEs were filed against Fedora/Debian system packages for `golang-github-alecthomas-chroma-2`, but these are all **Go standard library vulnerabilities**, not bugs in chroma:
+
+| CVE | Component | Description |
+|-----|-----------|-------------|
+| CVE-2025-58185 | `encoding/asn1` | Memory exhaustion parsing malicious DER payloads |
+| CVE-2025-58188 | `crypto/x509` | Panic validating certificates with DSA public keys |
+| CVE-2025-58189 | `crypto/tls` | ALPN negotiation error leaks attacker-controlled info |
+| CVE-2025-61723 | `encoding/pem` | Quadratic complexity parsing invalid PEM inputs |
+
+These are resolved by updating the Go toolchain, not by updating chroma. Since md-serve does not use `encoding/asn1`, `crypto/x509`, `crypto/tls`, or `encoding/pem` directly, the practical risk is **negligible**.
+
+### Non-CVE Issues (Denial of Service Risks)
+
+**chroma Issue [#290](https://github.com/alecthomas/chroma/issues/290)** — The HTML formatter can hang when highlighting certain inputs (e.g., as C++) due to catastrophic backtracking in the underlying regexp2 engine. No CVE assigned, but this is a real DoS risk when processing untrusted input.
+
+**regexp2 fuzzing issues** ([#32](https://github.com/dlclark/regexp2/issues/32), [#34](https://github.com/dlclark/regexp2/issues/34), [#36](https://github.com/dlclark/regexp2/issues/36)) — Panics (index out of range) and infinite match loops found via fuzzing in 2020. Some may be fixed in newer versions. The `MatchTimeout` field provides mitigation.
+
+**Risk for md-serve:** MEDIUM if exposed to untrusted markdown with code blocks (an attacker could craft input that causes the syntax highlighter to hang). LOW for local/trusted use.
+
+## Outdated Dependencies
+
+### github.com/alecthomas/chroma/v2 — v2.2.0 → v2.23.1 (significantly outdated)
+
+**Risk: LOW-MEDIUM.** While no CVEs target chroma directly, the current version (v2.2.0, released ~2022) is over 20 major versions behind. Newer versions include:
+- Bug fixes and stability improvements
+- Additional language lexer support
+- Performance improvements
+
+**Recommendation:** Update to v2.23.1. This also updates the indirect dependency `regexp2`.
+
+### github.com/dlclark/regexp2 — v1.7.0 → v1.11.5
+
+**Risk: LOW.** This is an indirect dependency pulled in by chroma. Updating chroma will update this as well. Note that regexp2 uses a backtracking regex engine which is inherently susceptible to ReDoS, but the library provides a `MatchTimeout` field for mitigation. Chroma uses this library internally for syntax highlighting patterns.
+
+## Code-Level Security Observations
+
+### 1. `html.WithUnsafe()` in render/render.go:47
+
+The goldmark renderer is configured with `html.WithUnsafe()`, which allows raw HTML in markdown to pass through unescaped. This is an **intentional design choice** for Obsidian-compatible rendering, but if md-serve is exposed to untrusted markdown input, this could enable **XSS attacks**.
+
+**Risk:** HIGH if serving untrusted content; LOW if serving only trusted/local files.
+
+### 2. Path Traversal Protection in server/server.go:42-49
+
+The server includes path traversal protection via `filepath.Clean` and `strings.HasPrefix` checks. This is correctly implemented.
+
+### 3. No TLS Configuration in main.go
+
+The server uses plain HTTP (`http.ListenAndServe`). This is expected for a local development tool but should not be used for production deployments without a reverse proxy.
+
+## Recommendations
+
+| Priority | Action | Rationale |
+|----------|--------|-----------|
+| Medium | Update chroma to v2.23.1 | 20+ versions behind; pick up bug fixes |
+| Low | Consider removing `html.WithUnsafe()` or adding a flag | Mitigate XSS risk when serving untrusted content |
+| Info | Go toolchain is current (1.24.7) | No action needed |
+| Info | goldmark is at latest version | No action needed |
+
+## How to Update
+
+```bash
+go get github.com/alecthomas/chroma/v2@latest
+go mod tidy
+```
+
+## Scan Methodology
+
+- Go Vulnerability Database (pkg.go.dev/vuln) — queried for all four dependencies
+- GitHub Security Advisories — searched for all packages
+- NVD (nvd.nist.gov) — searched for CVEs
+- OSV (osv.dev) — attempted query (rate limited)
+- govulncheck — attempted but vuln.go.dev was unreachable from this environment
+- Manual web search for CVE reports per dependency
