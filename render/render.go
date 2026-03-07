@@ -130,7 +130,7 @@ func postprocessObsidian(html string) string {
 		if !strings.HasSuffix(href, ".md") {
 			href += ".md"
 		}
-		return `<a class="wikilink" href="` + href + `">` + display + `</a>`
+		return `<a class="wikilink" href="/` + href + `">` + display + `</a>`
 	})
 
 	// Convert callouts: > [!type] title
