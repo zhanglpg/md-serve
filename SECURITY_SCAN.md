@@ -21,7 +21,24 @@ No CVEs were found targeting any of the four dependencies in the Go Vulnerabilit
 
 ### Indirect / Go Toolchain Vulnerability
 
-**CVE-2025-58185** — Memory exhaustion in Go's `encoding/asn1` package when parsing maliciously crafted DER payloads. This is a **Go standard library vulnerability**, not a bug in chroma itself. Fedora rebuilt `golang-github-alecthomas-chroma` packages against patched Go toolchains as a precaution. Since md-serve does not use `encoding/asn1` directly, and chroma is used only for syntax highlighting of markdown code blocks, the practical risk is **negligible**.
+Several CVEs were filed against Fedora/Debian system packages for `golang-github-alecthomas-chroma-2`, but these are all **Go standard library vulnerabilities**, not bugs in chroma:
+
+| CVE | Component | Description |
+|-----|-----------|-------------|
+| CVE-2025-58185 | `encoding/asn1` | Memory exhaustion parsing malicious DER payloads |
+| CVE-2025-58188 | `crypto/x509` | Panic validating certificates with DSA public keys |
+| CVE-2025-58189 | `crypto/tls` | ALPN negotiation error leaks attacker-controlled info |
+| CVE-2025-61723 | `encoding/pem` | Quadratic complexity parsing invalid PEM inputs |
+
+These are resolved by updating the Go toolchain, not by updating chroma. Since md-serve does not use `encoding/asn1`, `crypto/x509`, `crypto/tls`, or `encoding/pem` directly, the practical risk is **negligible**.
+
+### Non-CVE Issues (Denial of Service Risks)
+
+**chroma Issue [#290](https://github.com/alecthomas/chroma/issues/290)** — The HTML formatter can hang when highlighting certain inputs (e.g., as C++) due to catastrophic backtracking in the underlying regexp2 engine. No CVE assigned, but this is a real DoS risk when processing untrusted input.
+
+**regexp2 fuzzing issues** ([#32](https://github.com/dlclark/regexp2/issues/32), [#34](https://github.com/dlclark/regexp2/issues/34), [#36](https://github.com/dlclark/regexp2/issues/36)) — Panics (index out of range) and infinite match loops found via fuzzing in 2020. Some may be fixed in newer versions. The `MatchTimeout` field provides mitigation.
+
+**Risk for md-serve:** MEDIUM if exposed to untrusted markdown with code blocks (an attacker could craft input that causes the syntax highlighter to hang). LOW for local/trusted use.
 
 ## Outdated Dependencies
 
