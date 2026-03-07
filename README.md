@@ -1,16 +1,22 @@
 # MD Serve
 
-A lightweight HTTP server that renders Markdown files as a styled website. Supports Obsidian-compatible syntax including wikilinks, callouts, highlights, and comments.
+A lightweight HTTP server that renders Markdown files as a styled website. Supports Obsidian-compatible syntax including wikilinks, callouts, highlights, and comments. Serve one directory or multiple vaults side by side.
 
 ## Features
 
 - Serves `.md` and `.markdown` files as styled HTML pages
+- **Multi-vault support** — serve multiple directories as named vaults with a landing page
 - Obsidian syntax support: `[[wikilinks]]`, `==highlights==`, `%%comments%%`, callouts
+- Wiki links resolve case-insensitively with space/hyphen interoperability (`[[My Page]]` finds `my-page.md`)
+- Callout types: note, tip, info, warning, danger, example, success, failure, bug, abstract, question, quote
 - Table of Contents sidebar generated from headings
-- Full-text search across all markdown files
+- Full-text search across all markdown files (filterable by vault)
 - Directory browsing with breadcrumb navigation
+- Automatic `index.md` / `README.md` serving for directories
 - Syntax highlighting for code blocks (Dracula theme)
+- GitHub Flavored Markdown tables and footnotes
 - KaTeX math and Mermaid diagram rendering
+- Static file serving (images, PDFs, etc.) with proper MIME types
 - Dark mode support (auto-detects system preference)
 - Responsive design
 
@@ -28,15 +34,30 @@ go build -o md-serve .
 
 # Serve a specific directory with custom port and title
 ./md-serve -dir /path/to/docs -port 3000 -title "My Wiki"
+
+# Serve multiple vaults (each gets its own URL namespace and landing-page card)
+./md-serve -dir notes=/path/to/notes -dir wiki=/path/to/wiki
 ```
 
 ### Command-line Flags
 
 | Flag     | Default    | Description                              |
 |----------|------------|------------------------------------------|
-| `-dir`   | `.`        | Root directory to serve markdown files   |
+| `-dir`   | `.`        | Directory to serve. Repeatable. Use `name=path` for named vaults. |
 | `-port`  | `8080`     | Port to listen on                        |
 | `-title` | `MD Serve` | Site title displayed in the navigation   |
+
+### Multi-Vault Mode
+
+Pass multiple `-dir` flags to serve several directories as independent vaults:
+
+```bash
+./md-serve -dir docs=/srv/docs -dir blog=/srv/blog -title "My Site"
+```
+
+- The root URL (`/`) shows a landing page with a card for each vault.
+- Each vault is accessible under its name prefix (e.g. `/docs/`, `/blog/`).
+- Search spans all vaults by default; add `&vault=docs` to restrict results.
 
 ## Running as a Service at Startup
 
