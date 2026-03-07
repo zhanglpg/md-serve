@@ -282,15 +282,24 @@ type searchResult struct {
 // resolveWikiLink searches the entire root directory for a markdown file
 // matching the given basename (case-insensitive). This supports Obsidian-style
 // wiki links where [[Page Name]] can link to any file in the vault regardless
-// of its directory location.
+// of its directory location. It also tries matching with spaces replaced by
+// hyphens and vice versa, to handle different naming conventions.
 func (s *Server) resolveWikiLink(basename string) string {
 	target := strings.ToLower(basename)
+	// Also try the alternate form: spaces <-> hyphens
+	altTarget := ""
+	if strings.Contains(target, " ") {
+		altTarget = strings.ReplaceAll(target, " ", "-")
+	} else if strings.Contains(target, "-") {
+		altTarget = strings.ReplaceAll(target, "-", " ")
+	}
 	var match string
 	filepath.WalkDir(s.rootDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return nil
 		}
-		if strings.ToLower(filepath.Base(path)) == target {
+		name := strings.ToLower(filepath.Base(path))
+		if name == target || (altTarget != "" && name == altTarget) {
 			rel, err := filepath.Rel(s.rootDir, path)
 			if err == nil {
 				match = rel
