@@ -247,6 +247,103 @@ func TestSearchNoResults(t *testing.T) {
 	}
 }
 
+// --- Wiki link resolution tests ---
+
+func TestWikiLinkResolution_FileInSubdir(t *testing.T) {
+	dir := setupTestDir(t)
+	// Create a file in a subdirectory that we'll link to without a path
+	subDir := filepath.Join(dir, "notes")
+	os.Mkdir(subDir, 0755)
+	os.WriteFile(filepath.Join(subDir, "My-Page.md"), []byte("# My Page"), 0644)
+
+	srv := New(dir, "Test")
+
+	// Request /My-Page.md which doesn't exist at root - should redirect to /notes/My-Page.md
+	req := httptest.NewRequest("GET", "/My-Page.md", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusFound {
+		t.Errorf("expected 302 redirect, got %d", w.Code)
+	}
+	loc := w.Header().Get("Location")
+	if loc != "/notes/My-Page.md" {
+		t.Errorf("expected redirect to /notes/My-Page.md, got %q", loc)
+	}
+}
+
+func TestWikiLinkResolution_WithoutExtension(t *testing.T) {
+	dir := setupTestDir(t)
+	subDir := filepath.Join(dir, "deep", "nested")
+	os.MkdirAll(subDir, 0755)
+	os.WriteFile(filepath.Join(subDir, "Target.md"), []byte("# Target"), 0644)
+
+	srv := New(dir, "Test")
+
+	// Request /Target (without .md) - should find Target.md in deep/nested/
+	req := httptest.NewRequest("GET", "/Target", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusFound {
+		t.Errorf("expected 302 redirect, got %d", w.Code)
+	}
+	loc := w.Header().Get("Location")
+	if loc != "/deep/nested/Target.md" {
+		t.Errorf("expected redirect to /deep/nested/Target.md, got %q", loc)
+	}
+}
+
+func TestWikiLinkResolution_CaseInsensitive(t *testing.T) {
+	dir := setupTestDir(t)
+	subDir := filepath.Join(dir, "wiki")
+	os.Mkdir(subDir, 0755)
+	os.WriteFile(filepath.Join(subDir, "my-notes.md"), []byte("# Notes"), 0644)
+
+	srv := New(dir, "Test")
+
+	// Request with different casing
+	req := httptest.NewRequest("GET", "/My-Notes.md", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusFound {
+		t.Errorf("expected 302 redirect, got %d", w.Code)
+	}
+	loc := w.Header().Get("Location")
+	if loc != "/wiki/my-notes.md" {
+		t.Errorf("expected redirect to /wiki/my-notes.md, got %q", loc)
+	}
+}
+
+func TestWikiLinkResolution_DirectFileStillWorks(t *testing.T) {
+	dir := setupTestDir(t)
+	srv := New(dir, "Test")
+
+	// Request /hello.md which exists directly - should serve normally, not redirect
+	req := httptest.NewRequest("GET", "/hello.md", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", w.Code)
+	}
+}
+
+func TestWikiLinkResolution_NotFound(t *testing.T) {
+	dir := setupTestDir(t)
+	srv := New(dir, "Test")
+
+	// Request something that doesn't exist anywhere
+	req := httptest.NewRequest("GET", "/totally-missing-page.md", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("expected 404, got %d", w.Code)
+	}
+}
+
 // --- Breadcrumb tests ---
 
 func TestBuildBreadcrumbs_Root(t *testing.T) {
