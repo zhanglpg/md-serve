@@ -179,17 +179,37 @@ func TestPostprocessObsidian_Wikilinks(t *testing.T) {
 		{
 			"simple wikilink",
 			"Check [[My Page]] for details",
-			`<a class="wikilink" href="/My-Page.md">My Page</a>`,
+			`<a class="wikilink" href="/My%20Page.md">My Page</a>`,
 		},
 		{
 			"wikilink with display text",
 			"See [[My Page|custom text]] here",
-			`<a class="wikilink" href="/My-Page.md">custom text</a>`,
+			`<a class="wikilink" href="/My%20Page.md">custom text</a>`,
 		},
 		{
 			"wikilink already has .md",
 			"Link to [[notes.md]]",
 			`href="/notes.md"`,
+		},
+		{
+			"wikilink with special characters",
+			"See [[Page (draft)]] here",
+			`href="/Page%20%28draft%29.md"`,
+		},
+		{
+			"wikilink with ampersand",
+			"See [[Q&A]] here",
+			`href="/Q&A.md"`,
+		},
+		{
+			"wikilink with path",
+			"See [[folder/My Page]] here",
+			`href="/folder/My%20Page.md"`,
+		},
+		{
+			"wikilink with hash",
+			"See [[Notes #1]] here",
+			`href="/Notes%20%231.md"`,
 		},
 	}
 	for _, tc := range tests {

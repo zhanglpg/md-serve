@@ -2,6 +2,7 @@ package render
 
 import (
 	"bytes"
+	"net/url"
 	"regexp"
 	"strings"
 
@@ -126,10 +127,16 @@ func postprocessObsidian(html string) string {
 			display = parts[2]
 		}
 		// Link to the markdown file path
-		href := strings.ReplaceAll(target, " ", "-")
+		href := target
 		if !strings.HasSuffix(href, ".md") {
 			href += ".md"
 		}
+		// URL-encode each path segment to handle spaces and special characters
+		segments := strings.Split(href, "/")
+		for i, p := range segments {
+			segments[i] = url.PathEscape(p)
+		}
+		href = strings.Join(segments, "/")
 		return `<a class="wikilink" href="/` + href + `">` + display + `</a>`
 	})
 

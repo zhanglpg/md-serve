@@ -344,6 +344,93 @@ func TestWikiLinkResolution_NotFound(t *testing.T) {
 	}
 }
 
+func TestWikiLinkResolution_FileWithSpaces(t *testing.T) {
+	dir := t.TempDir()
+	subDir := filepath.Join(dir, "notes")
+	os.Mkdir(subDir, 0755)
+	os.WriteFile(filepath.Join(subDir, "My Page.md"), []byte("# My Page"), 0644)
+
+	srv := New(dir, "Test")
+
+	// Request with URL-encoded spaces (browser sends %20 for spaces)
+	req := httptest.NewRequest("GET", "/My%20Page.md", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusFound {
+		t.Errorf("expected 302 redirect, got %d", w.Code)
+	}
+	loc := w.Header().Get("Location")
+	if loc != "/notes/My Page.md" {
+		t.Errorf("expected redirect to /notes/My Page.md, got %q", loc)
+	}
+}
+
+func TestWikiLinkResolution_FileWithSpecialChars(t *testing.T) {
+	dir := t.TempDir()
+	subDir := filepath.Join(dir, "notes")
+	os.Mkdir(subDir, 0755)
+	os.WriteFile(filepath.Join(subDir, "Page (draft).md"), []byte("# Draft"), 0644)
+
+	srv := New(dir, "Test")
+
+	// Request with URL-encoded special characters
+	req := httptest.NewRequest("GET", "/Page%20%28draft%29.md", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusFound {
+		t.Errorf("expected 302 redirect, got %d", w.Code)
+	}
+	loc := w.Header().Get("Location")
+	if loc != "/notes/Page (draft).md" {
+		t.Errorf("expected redirect to /notes/Page (draft).md, got %q", loc)
+	}
+}
+
+func TestWikiLinkResolution_SpaceHyphenInterop(t *testing.T) {
+	dir := t.TempDir()
+	subDir := filepath.Join(dir, "notes")
+	os.Mkdir(subDir, 0755)
+	// File on disk uses spaces
+	os.WriteFile(filepath.Join(subDir, "My Page.md"), []byte("# My Page"), 0644)
+
+	srv := New(dir, "Test")
+
+	// Request with hyphens should still find the file with spaces
+	req := httptest.NewRequest("GET", "/My-Page.md", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusFound {
+		t.Errorf("expected 302 redirect, got %d", w.Code)
+	}
+	loc := w.Header().Get("Location")
+	if loc != "/notes/My Page.md" {
+		t.Errorf("expected redirect to /notes/My Page.md, got %q", loc)
+	}
+}
+
+func TestServeMarkdownFile_WithSpaces(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "My Page.md"), []byte("# My Page\n\nContent"), 0644)
+
+	srv := New(dir, "Test")
+
+	// Request file with spaces directly (URL-encoded)
+	req := httptest.NewRequest("GET", "/My%20Page.md", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "My Page") {
+		t.Error("expected rendered markdown content with spaces in filename")
+	}
+}
+
 // --- Breadcrumb tests ---
 
 func TestBuildBreadcrumbs_Root(t *testing.T) {
