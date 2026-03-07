@@ -14,17 +14,29 @@ import (
 	"github.com/zhanglpg/md-serve/render"
 )
 
-// Server serves markdown files over HTTP.
+// Vault maps a name to a local directory path.
+type Vault struct {
+	Name string
+	Path string
+}
+
+// Server serves markdown files from one or more vaults over HTTP.
 type Server struct {
-	rootDir   string
+	vaults    []Vault
+	vaultMap  map[string]string // name -> path
 	siteTitle string
 	mux       *http.ServeMux
 }
 
-// New creates a new Server.
-func New(rootDir, siteTitle string) *Server {
+// New creates a new Server with the given vaults.
+func New(vaults []Vault, siteTitle string) *Server {
+	vm := make(map[string]string, len(vaults))
+	for _, v := range vaults {
+		vm[v.Name] = v.Path
+	}
 	s := &Server{
-		rootDir:   rootDir,
+		vaults:    vaults,
+		vaultMap:  vm,
 		siteTitle: siteTitle,
 		mux:       http.NewServeMux(),
 	}
@@ -37,13 +49,47 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.mux.ServeHTTP(w, r)
 }
 
+// singleVaultMode returns true when there is exactly one vault.
+func (s *Server) singleVaultMode() bool {
+	return len(s.vaults) == 1
+}
+
 func (s *Server) handleRequest(w http.ResponseWriter, r *http.Request) {
-	// Resolve the requested path
 	reqPath := filepath.Clean(r.URL.Path)
-	fullPath := filepath.Join(s.rootDir, reqPath)
+
+	// In single-vault mode, behave exactly like the old code (no prefix needed).
+	if s.singleVaultMode() {
+		s.handleVaultRequest(w, r, s.vaults[0].Name, s.vaults[0].Path, reqPath)
+		return
+	}
+
+	// Multi-vault: root shows landing page.
+	if reqPath == "/" || reqPath == "." {
+		s.serveLanding(w, r)
+		return
+	}
+
+	// Extract vault name from the first path component.
+	parts := strings.SplitN(strings.TrimPrefix(reqPath, "/"), "/", 2)
+	vaultName := parts[0]
+	vaultPath, ok := s.vaultMap[vaultName]
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+
+	innerPath := "/"
+	if len(parts) > 1 {
+		innerPath = "/" + parts[1]
+	}
+	s.handleVaultRequest(w, r, vaultName, vaultPath, innerPath)
+}
+
+func (s *Server) handleVaultRequest(w http.ResponseWriter, r *http.Request, vaultName, rootDir, reqPath string) {
+	fullPath := filepath.Join(rootDir, filepath.Clean(reqPath))
 
 	// Security: ensure path is within root
-	if !strings.HasPrefix(fullPath, s.rootDir) {
+	if !strings.HasPrefix(fullPath, rootDir) {
 		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
@@ -53,16 +99,16 @@ func (s *Server) handleRequest(w http.ResponseWriter, r *http.Request) {
 		// Try appending .md extension
 		mdPath := fullPath + ".md"
 		if _, err2 := os.Stat(mdPath); err2 == nil {
-			s.serveMarkdown(w, r, mdPath, reqPath+".md")
+			s.serveMarkdown(w, r, vaultName, rootDir, mdPath, reqPath+".md")
 			return
 		}
-		// Obsidian-style wiki link resolution: search entire root for matching filename
-		if resolved := s.resolveWikiLink(filepath.Base(fullPath)); resolved != "" {
-			http.Redirect(w, r, "/"+resolved, http.StatusFound)
+		// Obsidian-style wiki link resolution
+		if resolved := resolveWikiLink(rootDir, filepath.Base(fullPath)); resolved != "" {
+			http.Redirect(w, r, s.vaultPrefix(vaultName)+"/"+resolved, http.StatusFound)
 			return
 		}
-		if resolved := s.resolveWikiLink(filepath.Base(mdPath)); resolved != "" {
-			http.Redirect(w, r, "/"+resolved, http.StatusFound)
+		if resolved := resolveWikiLink(rootDir, filepath.Base(mdPath)); resolved != "" {
+			http.Redirect(w, r, s.vaultPrefix(vaultName)+"/"+resolved, http.StatusFound)
 			return
 		}
 		http.NotFound(w, r)
@@ -70,25 +116,23 @@ func (s *Server) handleRequest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if info.IsDir() {
-		// Check for index.md in directory
 		indexPath := filepath.Join(fullPath, "index.md")
 		if _, err := os.Stat(indexPath); err == nil {
-			s.serveMarkdown(w, r, indexPath, filepath.Join(reqPath, "index.md"))
+			s.serveMarkdown(w, r, vaultName, rootDir, indexPath, filepath.Join(reqPath, "index.md"))
 			return
 		}
-		// Check for README.md
 		readmePath := filepath.Join(fullPath, "README.md")
 		if _, err := os.Stat(readmePath); err == nil {
-			s.serveMarkdown(w, r, readmePath, filepath.Join(reqPath, "README.md"))
+			s.serveMarkdown(w, r, vaultName, rootDir, readmePath, filepath.Join(reqPath, "README.md"))
 			return
 		}
-		s.serveDirectory(w, r, fullPath, reqPath)
+		s.serveDirectory(w, r, vaultName, rootDir, fullPath, reqPath)
 		return
 	}
 
 	ext := strings.ToLower(filepath.Ext(fullPath))
 	if ext == ".md" || ext == ".markdown" {
-		s.serveMarkdown(w, r, fullPath, reqPath)
+		s.serveMarkdown(w, r, vaultName, rootDir, fullPath, reqPath)
 		return
 	}
 
@@ -96,7 +140,15 @@ func (s *Server) handleRequest(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, fullPath)
 }
 
-func (s *Server) serveMarkdown(w http.ResponseWriter, r *http.Request, filePath, reqPath string) {
+// vaultPrefix returns the URL prefix for a vault. Empty in single-vault mode.
+func (s *Server) vaultPrefix(vaultName string) string {
+	if s.singleVaultMode() {
+		return ""
+	}
+	return "/" + vaultName
+}
+
+func (s *Server) serveMarkdown(w http.ResponseWriter, r *http.Request, vaultName, rootDir, filePath, reqPath string) {
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		http.Error(w, "Error reading file", http.StatusInternalServerError)
@@ -109,13 +161,11 @@ func (s *Server) serveMarkdown(w http.ResponseWriter, r *http.Request, filePath,
 		return
 	}
 
-	// Derive page title from filename
 	base := filepath.Base(filePath)
 	pageTitle := strings.TrimSuffix(base, filepath.Ext(base))
 	pageTitle = strings.ReplaceAll(pageTitle, "-", " ")
 
-	// Build breadcrumbs
-	breadcrumbs := buildBreadcrumbs(reqPath)
+	breadcrumbs := s.buildBreadcrumbs(vaultName, reqPath)
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	err = pageTmpl.Execute(w, pageData{
@@ -138,7 +188,7 @@ type DirEntry struct {
 	Size  string
 }
 
-func (s *Server) serveDirectory(w http.ResponseWriter, r *http.Request, dirPath, reqPath string) {
+func (s *Server) serveDirectory(w http.ResponseWriter, r *http.Request, vaultName, rootDir, dirPath, reqPath string) {
 	entries, err := os.ReadDir(dirPath)
 	if err != nil {
 		http.Error(w, "Error reading directory", http.StatusInternalServerError)
@@ -148,15 +198,16 @@ func (s *Server) serveDirectory(w http.ResponseWriter, r *http.Request, dirPath,
 	var dirs, files []DirEntry
 	for _, e := range entries {
 		if strings.HasPrefix(e.Name(), ".") {
-			continue // skip hidden files
+			continue
 		}
 		info, err := e.Info()
 		if err != nil {
 			continue
 		}
+		entryPath := filepath.Join(s.vaultPrefix(vaultName), reqPath, e.Name())
 		entry := DirEntry{
 			Name:  e.Name(),
-			Path:  filepath.Join(reqPath, e.Name()),
+			Path:  entryPath,
 			IsDir: e.IsDir(),
 			Size:  formatSize(info.Size()),
 		}
@@ -172,10 +223,10 @@ func (s *Server) serveDirectory(w http.ResponseWriter, r *http.Request, dirPath,
 
 	dirName := filepath.Base(reqPath)
 	if reqPath == "/" || reqPath == "." {
-		dirName = s.siteTitle
+		dirName = vaultName
 	}
 
-	breadcrumbs := buildBreadcrumbs(reqPath)
+	breadcrumbs := s.buildBreadcrumbs(vaultName, reqPath)
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	err = dirTmpl.Execute(w, dirData{
@@ -196,20 +247,36 @@ type Breadcrumb struct {
 	Path string
 }
 
-func buildBreadcrumbs(reqPath string) []Breadcrumb {
-	parts := strings.Split(strings.Trim(reqPath, "/"), "/")
+func (s *Server) buildBreadcrumbs(vaultName, reqPath string) []Breadcrumb {
 	var crumbs []Breadcrumb
 	crumbs = append(crumbs, Breadcrumb{Name: "Home", Path: "/"})
+
+	if !s.singleVaultMode() {
+		crumbs = append(crumbs, Breadcrumb{Name: vaultName, Path: "/" + vaultName})
+	}
+
+	parts := strings.Split(strings.Trim(reqPath, "/"), "/")
 	if parts[0] == "" || parts[0] == "." {
 		return crumbs
 	}
 	for i, part := range parts {
-		path := "/" + strings.Join(parts[:i+1], "/")
+		path := s.vaultPrefix(vaultName) + "/" + strings.Join(parts[:i+1], "/")
 		name := strings.TrimSuffix(part, filepath.Ext(part))
 		name = strings.ReplaceAll(name, "-", " ")
 		crumbs = append(crumbs, Breadcrumb{Name: name, Path: path})
 	}
 	return crumbs
+}
+
+func (s *Server) serveLanding(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	err := landingTmpl.Execute(w, landingData{
+		SiteTitle: s.siteTitle,
+		Vaults:    s.vaults,
+	})
+	if err != nil {
+		log.Printf("Template error: %v", err)
+	}
 }
 
 func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
@@ -220,47 +287,58 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var results []searchResult
-	filepath.WalkDir(s.rootDir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
-			return nil
-		}
-		ext := strings.ToLower(filepath.Ext(path))
-		if ext != ".md" && ext != ".markdown" {
-			return nil
-		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return nil
-		}
-		content := string(data)
-		if !strings.Contains(strings.ToLower(content), query) {
-			return nil
-		}
 
-		relPath, _ := filepath.Rel(s.rootDir, path)
-		name := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
-		name = strings.ReplaceAll(name, "-", " ")
-
-		// Extract a snippet around the match
-		idx := strings.Index(strings.ToLower(content), query)
-		start := idx - 80
-		if start < 0 {
-			start = 0
+	// Determine which vaults to search
+	vaultsToSearch := s.vaults
+	if vaultParam := r.URL.Query().Get("vault"); vaultParam != "" {
+		if path, ok := s.vaultMap[vaultParam]; ok {
+			vaultsToSearch = []Vault{{Name: vaultParam, Path: path}}
 		}
-		end := idx + len(query) + 80
-		if end > len(content) {
-			end = len(content)
-		}
-		snippet := content[start:end]
-		snippet = strings.ReplaceAll(snippet, "\n", " ")
+	}
 
-		results = append(results, searchResult{
-			Name:    name,
-			Path:    "/" + relPath,
-			Snippet: snippet,
+	for _, vault := range vaultsToSearch {
+		filepath.WalkDir(vault.Path, func(path string, d fs.DirEntry, err error) error {
+			if err != nil || d.IsDir() {
+				return nil
+			}
+			ext := strings.ToLower(filepath.Ext(path))
+			if ext != ".md" && ext != ".markdown" {
+				return nil
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return nil
+			}
+			content := string(data)
+			if !strings.Contains(strings.ToLower(content), query) {
+				return nil
+			}
+
+			relPath, _ := filepath.Rel(vault.Path, path)
+			name := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
+			name = strings.ReplaceAll(name, "-", " ")
+
+			idx := strings.Index(strings.ToLower(content), query)
+			start := idx - 80
+			if start < 0 {
+				start = 0
+			}
+			end := idx + len(query) + 80
+			if end > len(content) {
+				end = len(content)
+			}
+			snippet := content[start:end]
+			snippet = strings.ReplaceAll(snippet, "\n", " ")
+
+			resultPath := s.vaultPrefix(vault.Name) + "/" + relPath
+			results = append(results, searchResult{
+				Name:    name,
+				Path:    resultPath,
+				Snippet: snippet,
+			})
+			return nil
 		})
-		return nil
-	})
+	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	err := searchTmpl.Execute(w, searchData{
@@ -279,14 +357,10 @@ type searchResult struct {
 	Snippet string
 }
 
-// resolveWikiLink searches the entire root directory for a markdown file
-// matching the given basename (case-insensitive). This supports Obsidian-style
-// wiki links where [[Page Name]] can link to any file in the vault regardless
-// of its directory location. It also tries matching with spaces replaced by
-// hyphens and vice versa, to handle different naming conventions.
-func (s *Server) resolveWikiLink(basename string) string {
+// resolveWikiLink searches the given root directory for a markdown file
+// matching the given basename (case-insensitive).
+func resolveWikiLink(rootDir, basename string) string {
 	target := strings.ToLower(basename)
-	// Also try the alternate form: spaces <-> hyphens
 	altTarget := ""
 	if strings.Contains(target, " ") {
 		altTarget = strings.ReplaceAll(target, " ", "-")
@@ -294,13 +368,13 @@ func (s *Server) resolveWikiLink(basename string) string {
 		altTarget = strings.ReplaceAll(target, "-", " ")
 	}
 	var match string
-	filepath.WalkDir(s.rootDir, func(path string, d fs.DirEntry, err error) error {
+	filepath.WalkDir(rootDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return nil
 		}
 		name := strings.ToLower(filepath.Base(path))
 		if name == target || (altTarget != "" && name == altTarget) {
-			rel, err := filepath.Rel(s.rootDir, path)
+			rel, err := filepath.Rel(rootDir, path)
 			if err == nil {
 				match = rel
 				return filepath.SkipAll
