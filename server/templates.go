@@ -28,6 +28,11 @@ type searchData struct {
 	Results   []searchResult
 }
 
+type landingData struct {
+	SiteTitle string
+	Vaults    []Vault
+}
+
 const baseCSS = `
 :root {
   --bg: #ffffff;
@@ -339,6 +344,43 @@ a:hover { color: var(--link-hover); text-decoration: underline; }
 .search-results .result-title { font-weight: 600; font-size: 1.1em; }
 .search-results .result-path { font-size: 0.8em; color: var(--text-secondary); }
 .search-results .result-snippet { font-size: 0.9em; color: var(--text-secondary); margin-top: 0.3em; }
+
+/* Landing page - vault grid */
+.vault-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 1.5rem;
+  padding: 2rem 0;
+}
+.vault-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 2.5rem 1.5rem;
+  border-radius: 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  transition: transform 0.15s, box-shadow 0.15s, border-color 0.15s;
+  text-align: center;
+  color: var(--text);
+}
+.vault-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+  border-color: var(--accent);
+  text-decoration: none;
+  color: var(--text);
+}
+.vault-card .vault-icon {
+  font-size: 4rem;
+  margin-bottom: 0.75rem;
+  line-height: 1;
+}
+.vault-card .vault-name {
+  font-size: 1.2rem;
+  font-weight: 600;
+}
 `
 
 var pageTmpl = template.Must(template.New("page").Parse(`<!DOCTYPE html>
@@ -432,10 +474,10 @@ var dirTmpl = template.Must(template.New("dir").Parse(`<!DOCTYPE html>
     <h1>{{.DirName}}</h1>
     <ul class="dir-list">
       {{range .Dirs}}
-      <li><a href="{{.Path}}"><span class="icon">📁</span><span class="name dir-name">{{.Name}}</span></a></li>
+      <li><a href="{{.Path}}"><span class="icon">&#x1F4C1;</span><span class="name dir-name">{{.Name}}</span></a></li>
       {{end}}
       {{range .Files}}
-      <li><a href="{{.Path}}"><span class="icon">📄</span><span class="name">{{.Name}}</span><span class="size">{{.Size}}</span></a></li>
+      <li><a href="{{.Path}}"><span class="icon">&#x1F4C4;</span><span class="name">{{.Name}}</span><span class="size">{{.Size}}</span></a></li>
       {{end}}
     </ul>
   </div>
@@ -474,6 +516,37 @@ var searchTmpl = template.Must(template.New("search").Parse(`<!DOCTYPE html>
     {{else}}
     <p>No results found.</p>
     {{end}}
+  </div>
+</div>
+</body>
+</html>`))
+
+var landingTmpl = template.Must(template.New("landing").Parse(`<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{.SiteTitle}}</title>
+<style>` + baseCSS + `</style>
+</head>
+<body>
+<div class="topbar">
+  <a href="/" class="site-title">{{.SiteTitle}}</a>
+  <form class="search-form" action="/search" method="get">
+    <input type="text" name="q" placeholder="Search all vaults..." autocomplete="off">
+  </form>
+</div>
+<div class="layout">
+  <div class="main-content">
+    <h1>Vaults</h1>
+    <div class="vault-grid">
+      {{range .Vaults}}
+      <a class="vault-card" href="/{{.Name}}">
+        <div class="vault-icon">&#x1F4DA;</div>
+        <div class="vault-name">{{.Name}}</div>
+      </a>
+      {{end}}
+    </div>
   </div>
 </div>
 </body>
