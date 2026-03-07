@@ -56,6 +56,15 @@ func (s *Server) handleRequest(w http.ResponseWriter, r *http.Request) {
 			s.serveMarkdown(w, r, mdPath, reqPath+".md")
 			return
 		}
+		// Obsidian-style wiki link resolution: search entire root for matching filename
+		if resolved := s.resolveWikiLink(filepath.Base(fullPath)); resolved != "" {
+			http.Redirect(w, r, "/"+resolved, http.StatusFound)
+			return
+		}
+		if resolved := s.resolveWikiLink(filepath.Base(mdPath)); resolved != "" {
+			http.Redirect(w, r, "/"+resolved, http.StatusFound)
+			return
+		}
 		http.NotFound(w, r)
 		return
 	}
@@ -268,6 +277,29 @@ type searchResult struct {
 	Name    string
 	Path    string
 	Snippet string
+}
+
+// resolveWikiLink searches the entire root directory for a markdown file
+// matching the given basename (case-insensitive). This supports Obsidian-style
+// wiki links where [[Page Name]] can link to any file in the vault regardless
+// of its directory location.
+func (s *Server) resolveWikiLink(basename string) string {
+	target := strings.ToLower(basename)
+	var match string
+	filepath.WalkDir(s.rootDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil
+		}
+		if strings.ToLower(filepath.Base(path)) == target {
+			rel, err := filepath.Rel(s.rootDir, path)
+			if err == nil {
+				match = rel
+				return filepath.SkipAll
+			}
+		}
+		return nil
+	})
+	return match
 }
 
 func formatSize(size int64) string {
