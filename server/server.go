@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -104,11 +105,11 @@ func (s *Server) handleVaultRequest(w http.ResponseWriter, r *http.Request, vaul
 		}
 		// Obsidian-style wiki link resolution
 		if resolved := resolveWikiLink(rootDir, filepath.Base(fullPath)); resolved != "" {
-			http.Redirect(w, r, s.vaultPrefix(vaultName)+"/"+resolved, http.StatusFound)
+			http.Redirect(w, r, s.vaultPrefix(vaultName)+"/"+urlEncodePath(resolved), http.StatusFound)
 			return
 		}
 		if resolved := resolveWikiLink(rootDir, filepath.Base(mdPath)); resolved != "" {
-			http.Redirect(w, r, s.vaultPrefix(vaultName)+"/"+resolved, http.StatusFound)
+			http.Redirect(w, r, s.vaultPrefix(vaultName)+"/"+urlEncodePath(resolved), http.StatusFound)
 			return
 		}
 		http.NotFound(w, r)
@@ -489,6 +490,15 @@ func serveFileContent(w http.ResponseWriter, r *http.Request, filePath string) {
 	}
 
 	http.ServeContent(w, r, info.Name(), info.ModTime(), f)
+}
+
+// urlEncodePath URL-encodes each segment of a slash-separated path.
+func urlEncodePath(path string) string {
+	segments := strings.Split(path, "/")
+	for i, p := range segments {
+		segments[i] = url.PathEscape(p)
+	}
+	return strings.Join(segments, "/")
 }
 
 func formatSize(size int64) string {
