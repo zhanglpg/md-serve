@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/zhanglpg/md-serve/render"
 )
@@ -96,6 +97,23 @@ func (s *Server) handleVaultRequest(w http.ResponseWriter, r *http.Request, vaul
 	}
 
 	info, err := os.Stat(fullPath)
+	if err != nil {
+		// For non-markdown files, check if this is an evicted iCloud file.
+		// macOS replaces evicted files with .<name>.icloud placeholders.
+		ext := strings.ToLower(filepath.Ext(fullPath))
+		if ext != "" && ext != ".md" && ext != ".markdown" && hasICloudPlaceholder(fullPath) {
+			icloudInfo, icloudErr := waitForICloudFile(r.Context(), fullPath, icloudWaitTimeout)
+			if icloudErr == nil {
+				info = icloudInfo
+				err = nil
+			} else {
+				// File is on iCloud but hasn't arrived yet (timeout or client disconnect).
+				w.Header().Set("Retry-After", "5")
+				http.Error(w, "File is downloading from iCloud, please retry", http.StatusServiceUnavailable)
+				return
+			}
+		}
+	}
 	if err != nil {
 		// Try appending .md extension
 		mdPath := fullPath + ".md"
@@ -477,6 +495,16 @@ func (s *Server) serveExcalidrawViewer(w http.ResponseWriter, r *http.Request, v
 // http.ServeFile's URL path checks that can interfere with vault paths.
 func serveFileContent(w http.ResponseWriter, r *http.Request, filePath string) {
 	f, err := os.Open(filePath)
+	if err != nil && hasICloudPlaceholder(filePath) {
+		// File may still be materializing from iCloud; brief retry.
+		for i := 0; i < 5; i++ {
+			time.Sleep(500 * time.Millisecond)
+			f, err = os.Open(filePath)
+			if err == nil {
+				break
+			}
+		}
+	}
 	if err != nil {
 		http.NotFound(w, r)
 		return
