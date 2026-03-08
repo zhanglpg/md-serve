@@ -342,8 +342,8 @@ func ResolveWikiTarget(vaultDir, target string) string {
 
 // postprocessObsidian handles HTML-level transformations after rendering.
 func postprocessObsidian(html string, opts *RenderOptions) string {
-	// Add lazy loading to all images (both wiki-embed and goldmark-produced)
-	html = strings.ReplaceAll(html, `<img src=`, `<img loading="lazy" src=`)
+	// Use eager loading for all images (block until loaded)
+	html = strings.ReplaceAll(html, `<img src=`, `<img loading="eager" src=`)
 
 	// Convert callouts: > [!type] title
 	html = calloutStartRe.ReplaceAllStringFunc(html, func(match string) string {

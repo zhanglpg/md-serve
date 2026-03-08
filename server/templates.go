@@ -581,7 +581,7 @@ var imageViewerTmpl = template.Must(template.New("imageviewer").Parse(`<!DOCTYPE
     </nav>
     <div class="image-viewer">
       <div class="image-name">{{.FileName}}</div>
-      <img src="{{.ImageURL}}" alt="{{.FileName}}" loading="lazy">
+      <img src="{{.ImageURL}}" alt="{{.FileName}}">
       <div class="image-actions">
         <a href="{{.ImageURL}}" download>Download</a>
         <a href="{{.ImageURL}}" target="_blank">Open raw</a>
