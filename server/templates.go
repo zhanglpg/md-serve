@@ -506,20 +506,35 @@ document.addEventListener("DOMContentLoaded", function() {
   if (document.querySelector('.mermaid')) {
     mermaid.initialize({ startOnLoad: true, theme: window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default' });
   }
-  // Retry failed images with exponential backoff (helps with slow iCloud file reads)
+  // Retry failed images with exponential backoff (handles iCloud file materialization)
   var mdContent = document.querySelector('.md-content');
   if (mdContent) {
     mdContent.addEventListener('error', function(e) {
       if (e.target.tagName !== 'IMG') return;
       var img = e.target;
       var retries = parseInt(img.dataset.retryCount || '0', 10);
-      if (retries >= 3) return;
+      if (retries >= 5) {
+        img.style.opacity = '0.3';
+        img.title = 'Image failed to load';
+        return;
+      }
       img.dataset.retryCount = retries + 1;
+      img.style.opacity = '0.5';
+      img.style.transition = 'opacity 0.3s';
+      img.title = 'Loading from iCloud... (attempt ' + (retries + 1) + '/5)';
       var delay = Math.pow(2, retries) * 1000;
       setTimeout(function() {
         var src = img.getAttribute('src').split('?')[0];
         img.src = src + '?_retry=' + (retries + 1) + '&_t=' + Date.now();
       }, delay);
+    }, true);
+    mdContent.addEventListener('load', function(e) {
+      if (e.target.tagName !== 'IMG') return;
+      var img = e.target;
+      if (img.dataset.retryCount) {
+        img.style.opacity = '1';
+        img.title = '';
+      }
     }, true);
   }
 });
