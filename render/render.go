@@ -155,30 +155,11 @@ func preprocessObsidian(source []byte, opts *RenderOptions) []byte {
 		if parts[2] != "" {
 			alt = parts[2]
 		}
-		resolved := resolveWikiTarget(vaultDir, target)
-		pathForURL := target
-		if resolved != "" {
-			pathForURL = resolved
-		}
+		// Resolve target in vault, including excalidraw shadow lookup.
+		pathForURL := resolveWikiHref(vaultDir, target)
 		href := prefix + "/" + urlEncodePath(pathForURL)
 		ext := strings.ToLower(filepath.Ext(target))
-		if imageExts[ext] {
-			return `<img src="` + href + `" alt="` + alt + `" />`
-		}
-		// Excalidraw embed: prefer shadow SVG/PNG exported by Obsidian.
-		// If no shadow is found at render time, emit an <img> pointing at
-		// the .excalidraw URL; the server resolves it to the shadow file.
-		if ext == excalidrawExt {
-			if vaultDir != "" {
-				filePath := pathForURL
-				if resolved != "" {
-					filePath = resolved
-				}
-				if shadow := findExcalidrawShadow(vaultDir, filePath); shadow != "" {
-					shadowHref := prefix + "/" + urlEncodePath(shadow)
-					return `<img src="` + shadowHref + `" alt="` + alt + `" />`
-				}
-			}
+		if imageExts[ext] || ext == excalidrawExt {
 			return `<img src="` + href + `" alt="` + alt + `" />`
 		}
 		return `<a class="wikilink embed" href="` + href + `">` + alt + `</a>`
@@ -192,6 +173,10 @@ func preprocessObsidian(source []byte, opts *RenderOptions) []byte {
 // Also checks for iCloud placeholder files (.<name>.icloud) so that evicted
 // shadow files are still discovered; the server will handle materialization
 // when the browser actually requests the image.
+//
+// When the direct path check fails, it falls back to a vault-wide search
+// using resolveWikiTarget, matching Obsidian's behavior where wiki links
+// don't include relative paths.
 func findExcalidrawShadow(vaultDir, filePath string) string {
 	if vaultDir == "" {
 		return ""
@@ -204,7 +189,32 @@ func findExcalidrawShadow(vaultDir, filePath string) string {
 			return rel
 		}
 	}
+	// Fallback: search the whole vault for the shadow file by basename,
+	// reusing resolveWikiTarget which handles vault-wide resolution.
+	baseName := filepath.Base(filePath)
+	for _, ext := range []string{".svg", ".png"} {
+		if resolved := ResolveWikiTarget(vaultDir, baseName+ext); resolved != "" {
+			return resolved
+		}
+	}
 	return ""
+}
+
+// resolveWikiHref resolves a wiki link target to the best available path.
+// It performs vault-wide resolution and, for excalidraw files, returns the
+// shadow SVG/PNG path if available.
+func resolveWikiHref(vaultDir, target string) string {
+	resolved := ResolveWikiTarget(vaultDir, target)
+	href := target
+	if resolved != "" {
+		href = resolved
+	}
+	if strings.ToLower(filepath.Ext(href)) == excalidrawExt && vaultDir != "" {
+		if shadow := findExcalidrawShadow(vaultDir, href); shadow != "" {
+			return shadow
+		}
+	}
+	return href
 }
 
 // fileExistsOrICloud returns true if the file exists on disk or has an
@@ -237,9 +247,12 @@ func urlEncodePath(path string) string {
 	return strings.Join(segments, "/")
 }
 
-// resolveWikiTarget searches the vault directory for a file matching the target.
+// ResolveWikiTarget searches the vault directory for a file matching the target.
 // It returns the relative path from the vault root, or empty string if not found.
-func resolveWikiTarget(vaultDir, target string) string {
+// For non-attachment targets without a .md suffix, it appends .md automatically.
+// Resolution tries a direct path first, then falls back to a vault-wide
+// case-insensitive basename search with space/hyphen interoperability.
+func ResolveWikiTarget(vaultDir, target string) string {
 	if vaultDir == "" {
 		return ""
 	}
@@ -301,25 +314,16 @@ func postprocessObsidian(html string, opts *RenderOptions) string {
 		if parts[2] != "" {
 			display = parts[2]
 		}
-		href := target
-		// Only add .md suffix for note links, not attachments
-		if !isAttachment(href) && !strings.HasSuffix(href, ".md") {
-			href += ".md"
-		}
 		// For display text of path links, show only the filename (without path)
 		if parts[2] == "" && strings.Contains(display, "/") {
 			display = filepath.Base(display)
 		}
-		// Resolve the wiki link target path in the vault
-		resolved := resolveWikiTarget(vaultDir, target)
-		if resolved != "" {
-			href = resolved
-		}
-		// For .excalidraw links, point to shadow SVG/PNG if available
-		if strings.ToLower(filepath.Ext(href)) == excalidrawExt && vaultDir != "" {
-			if shadow := findExcalidrawShadow(vaultDir, href); shadow != "" {
-				href = shadow
-			}
+		// Resolve target in vault, including excalidraw shadow lookup.
+		href := resolveWikiHref(vaultDir, target)
+		// If resolution didn't find the file, use the target with .md suffix
+		// for note links so the URL still looks correct.
+		if href == target && !isAttachment(href) && !strings.HasSuffix(href, ".md") {
+			href += ".md"
 		}
 		href = urlEncodePath(href)
 		return `<a class="wikilink" href="` + prefix + `/` + href + `">` + display + `</a>`
