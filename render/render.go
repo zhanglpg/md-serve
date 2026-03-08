@@ -165,12 +165,17 @@ func preprocessObsidian(source []byte, opts *RenderOptions) []byte {
 		if imageExts[ext] {
 			return `<img src="` + href + `" alt="` + alt + `" />`
 		}
-		// Inline Excalidraw viewer: read the file and embed the JSON data
+		// Excalidraw embed: prefer shadow SVG/PNG exported by Obsidian
 		if ext == excalidrawExt && vaultDir != "" {
 			filePath := pathForURL
 			if resolved != "" {
 				filePath = resolved
 			}
+			if shadow := findExcalidrawShadow(vaultDir, filePath); shadow != "" {
+				shadowHref := prefix + "/" + urlEncodePath(shadow)
+				return `<img src="` + shadowHref + `" alt="` + alt + `" />`
+			}
+			// Fall back to inline Excalidraw JS viewer
 			absPath := filepath.Join(vaultDir, filepath.Clean(filePath))
 			if data, err := os.ReadFile(absPath); err == nil {
 				escapedJSON := strings.ReplaceAll(string(data), `&`, `&amp;`)
@@ -184,6 +189,23 @@ func preprocessObsidian(source []byte, opts *RenderOptions) []byte {
 	})
 
 	return []byte(s)
+}
+
+// findExcalidrawShadow looks for a shadow SVG or PNG file exported by Obsidian
+// alongside the .excalidraw file. Returns the relative path from vaultDir if found.
+func findExcalidrawShadow(vaultDir, filePath string) string {
+	if vaultDir == "" {
+		return ""
+	}
+	absBase := filepath.Join(vaultDir, filepath.Clean(filePath))
+	for _, ext := range []string{".svg", ".png"} {
+		candidate := absBase + ext
+		if _, err := os.Stat(candidate); err == nil {
+			rel, _ := filepath.Rel(vaultDir, candidate)
+			return rel
+		}
+	}
+	return ""
 }
 
 // isAttachment returns true if the target path has a non-markdown file extension,
@@ -279,6 +301,12 @@ func postprocessObsidian(html string, opts *RenderOptions) string {
 		resolved := resolveWikiTarget(vaultDir, target)
 		if resolved != "" {
 			href = resolved
+		}
+		// For .excalidraw links, point to shadow SVG/PNG if available
+		if strings.ToLower(filepath.Ext(href)) == excalidrawExt && vaultDir != "" {
+			if shadow := findExcalidrawShadow(vaultDir, href); shadow != "" {
+				href = shadow
+			}
 		}
 		href = urlEncodePath(href)
 		return `<a class="wikilink" href="` + prefix + `/` + href + `">` + display + `</a>`
