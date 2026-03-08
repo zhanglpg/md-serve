@@ -581,6 +581,50 @@ func TestPreprocessObsidian_ExcalidrawEmbed_FileNotFound(t *testing.T) {
 	}
 }
 
+func TestPreprocessObsidian_ExcalidrawEmbed_ICloudShadow(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "diagram.excalidraw"), []byte(`{}`), 0644)
+	// Shadow SVG is evicted to iCloud — only the placeholder exists
+	os.WriteFile(filepath.Join(dir, ".diagram.excalidraw.svg.icloud"), []byte("placeholder"), 0644)
+
+	opts := &RenderOptions{VaultDir: dir, URLPrefix: ""}
+
+	result := string(preprocessObsidian([]byte("![[diagram.excalidraw]]"), opts))
+	if !strings.Contains(result, `<img src="/diagram.excalidraw.svg"`) {
+		t.Errorf("expected img tag for iCloud-evicted shadow SVG, got %q", result)
+	}
+	if strings.Contains(result, `class="excalidraw-embed"`) {
+		t.Error("should not fall back to JS viewer when iCloud placeholder exists")
+	}
+}
+
+func TestPreprocessObsidian_ExcalidrawEmbed_ICloudShadowPNG(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "diagram.excalidraw"), []byte(`{}`), 0644)
+	// Only PNG placeholder exists (no SVG at all)
+	os.WriteFile(filepath.Join(dir, ".diagram.excalidraw.png.icloud"), []byte("placeholder"), 0644)
+
+	opts := &RenderOptions{VaultDir: dir, URLPrefix: ""}
+
+	result := string(preprocessObsidian([]byte("![[diagram.excalidraw]]"), opts))
+	if !strings.Contains(result, `<img src="/diagram.excalidraw.png"`) {
+		t.Errorf("expected img tag for iCloud-evicted shadow PNG, got %q", result)
+	}
+}
+
+func TestPostprocessObsidian_ExcalidrawWikilink_ICloudShadow(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "drawing.excalidraw"), []byte(`{}`), 0644)
+	os.WriteFile(filepath.Join(dir, ".drawing.excalidraw.svg.icloud"), []byte("placeholder"), 0644)
+
+	opts := &RenderOptions{VaultDir: dir, URLPrefix: ""}
+
+	result := postprocessObsidian("See [[drawing.excalidraw]]", opts)
+	if !strings.Contains(result, `href="/drawing.excalidraw.svg"`) {
+		t.Errorf("expected wikilink href to point to iCloud-evicted shadow SVG, got %q", result)
+	}
+}
+
 func TestPostprocessObsidian_ExcalidrawWikilink_WithShadow(t *testing.T) {
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "drawing.excalidraw"), []byte(`{}`), 0644)

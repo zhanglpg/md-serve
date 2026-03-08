@@ -193,6 +193,9 @@ func preprocessObsidian(source []byte, opts *RenderOptions) []byte {
 
 // findExcalidrawShadow looks for a shadow SVG or PNG file exported by Obsidian
 // alongside the .excalidraw file. Returns the relative path from vaultDir if found.
+// Also checks for iCloud placeholder files (.<name>.icloud) so that evicted
+// shadow files are still discovered; the server will handle materialization
+// when the browser actually requests the image.
 func findExcalidrawShadow(vaultDir, filePath string) string {
 	if vaultDir == "" {
 		return ""
@@ -200,12 +203,26 @@ func findExcalidrawShadow(vaultDir, filePath string) string {
 	absBase := filepath.Join(vaultDir, filepath.Clean(filePath))
 	for _, ext := range []string{".svg", ".png"} {
 		candidate := absBase + ext
-		if _, err := os.Stat(candidate); err == nil {
+		if fileExistsOrICloud(candidate) {
 			rel, _ := filepath.Rel(vaultDir, candidate)
 			return rel
 		}
 	}
 	return ""
+}
+
+// fileExistsOrICloud returns true if the file exists on disk or has an
+// iCloud placeholder (.<name>.icloud), indicating it is evicted but available.
+func fileExistsOrICloud(fullPath string) bool {
+	if _, err := os.Stat(fullPath); err == nil {
+		return true
+	}
+	// Check for macOS iCloud placeholder: dir/.<basename>.icloud
+	dir := filepath.Dir(fullPath)
+	base := filepath.Base(fullPath)
+	placeholder := filepath.Join(dir, "."+base+".icloud")
+	_, err := os.Stat(placeholder)
+	return err == nil
 }
 
 // isAttachment returns true if the target path has a non-markdown file extension,
