@@ -143,6 +143,12 @@ func (s *Server) handleVaultRequest(w http.ResponseWriter, r *http.Request, vaul
 		return
 	}
 
+	// For Excalidraw files, serve a viewer page on direct browser navigation.
+	if ext == ".excalidraw" && isNavigationRequest(r) {
+		s.serveExcalidrawViewer(w, r, vaultName, fullPath, reqPath)
+		return
+	}
+
 	// Serve files directly using http.ServeContent instead of http.ServeFile
 	// to avoid issues with http.ServeFile's path sanitization on r.URL.Path
 	// (containsDotDot checks and redirects) which can cause failed downloads
@@ -438,6 +444,28 @@ func (s *Server) serveImageViewer(w http.ResponseWriter, r *http.Request, vaultN
 		FileName:    fileName,
 		ImageURL:    rawURL,
 		Breadcrumbs: breadcrumbs,
+	})
+	if err != nil {
+		log.Printf("Template error: %v", err)
+	}
+}
+
+func (s *Server) serveExcalidrawViewer(w http.ResponseWriter, r *http.Request, vaultName, fullPath, reqPath string) {
+	data, err := os.ReadFile(fullPath)
+	if err != nil {
+		http.Error(w, "Error reading file", http.StatusInternalServerError)
+		return
+	}
+
+	fileName := filepath.Base(fullPath)
+	breadcrumbs := s.buildBreadcrumbs(vaultName, reqPath)
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	err = excalidrawViewerTmpl.Execute(w, excalidrawViewerData{
+		SiteTitle:      s.siteTitle,
+		FileName:       fileName,
+		ExcalidrawJSON: string(data),
+		Breadcrumbs:    breadcrumbs,
 	})
 	if err != nil {
 		log.Printf("Template error: %v", err)

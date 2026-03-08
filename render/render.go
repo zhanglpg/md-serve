@@ -123,6 +123,9 @@ var (
 		".svg": true, ".webp": true, ".bmp": true, ".ico": true,
 		".avif": true, ".apng": true, ".tiff": true, ".tif": true,
 	}
+
+	// excalidrawExt is the file extension for Excalidraw drawings.
+	excalidrawExt = ".excalidraw"
 )
 
 // preprocessObsidian handles syntax that must be processed before goldmark.
@@ -161,6 +164,21 @@ func preprocessObsidian(source []byte, opts *RenderOptions) []byte {
 		ext := strings.ToLower(filepath.Ext(target))
 		if imageExts[ext] {
 			return `<img src="` + href + `" alt="` + alt + `" />`
+		}
+		// Inline Excalidraw viewer: read the file and embed the JSON data
+		if ext == excalidrawExt && vaultDir != "" {
+			filePath := pathForURL
+			if resolved != "" {
+				filePath = resolved
+			}
+			absPath := filepath.Join(vaultDir, filepath.Clean(filePath))
+			if data, err := os.ReadFile(absPath); err == nil {
+				escapedJSON := strings.ReplaceAll(string(data), `&`, `&amp;`)
+				escapedJSON = strings.ReplaceAll(escapedJSON, `<`, `&lt;`)
+				escapedJSON = strings.ReplaceAll(escapedJSON, `>`, `&gt;`)
+				escapedJSON = strings.ReplaceAll(escapedJSON, `"`, `&quot;`)
+				return `<div class="excalidraw-embed" data-excalidraw="` + escapedJSON + `"></div>`
+			}
 		}
 		return `<a class="wikilink embed" href="` + href + `">` + alt + `</a>`
 	})
