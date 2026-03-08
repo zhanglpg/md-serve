@@ -162,9 +162,14 @@ func (s *Server) handleVaultRequest(w http.ResponseWriter, r *http.Request, vaul
 		return
 	}
 
-	// For Excalidraw files, serve a viewer page on direct browser navigation.
-	if ext == ".excalidraw" && isNavigationRequest(r) {
-		s.serveExcalidrawViewer(w, r, vaultName, fullPath, reqPath)
+	// For Excalidraw files, serve a viewer page on direct browser navigation,
+	// or resolve to the shadow SVG/PNG for <img> tag requests.
+	if ext == ".excalidraw" {
+		if isNavigationRequest(r) {
+			s.serveExcalidrawViewer(w, r, vaultName, fullPath, reqPath)
+			return
+		}
+		s.serveExcalidrawShadow(w, r, fullPath)
 		return
 	}
 
@@ -489,6 +494,32 @@ func (s *Server) serveExcalidrawViewer(w http.ResponseWriter, r *http.Request, v
 	if err != nil {
 		log.Printf("Template error: %v", err)
 	}
+}
+
+// serveExcalidrawShadow serves the shadow SVG or PNG file that Obsidian
+// exports alongside an .excalidraw file. It checks for .excalidraw.svg first,
+// then .excalidraw.png, handling iCloud-evicted placeholders. If no shadow
+// exists it falls back to serving the raw excalidraw JSON.
+func (s *Server) serveExcalidrawShadow(w http.ResponseWriter, r *http.Request, excalidrawPath string) {
+	for _, ext := range []string{".svg", ".png"} {
+		candidate := excalidrawPath + ext
+		if _, err := os.Stat(candidate); err == nil {
+			serveFileContent(w, r, candidate)
+			return
+		}
+		if hasICloudPlaceholder(candidate) {
+			info, err := waitForICloudFile(r.Context(), candidate, icloudWaitTimeout)
+			if err == nil && info != nil {
+				serveFileContent(w, r, candidate)
+				return
+			}
+			w.Header().Set("Retry-After", "5")
+			http.Error(w, "Shadow file is downloading from iCloud, please retry", http.StatusServiceUnavailable)
+			return
+		}
+	}
+	// No shadow found — serve raw excalidraw JSON as fallback.
+	serveFileContent(w, r, excalidrawPath)
 }
 
 // serveFileContent serves a file using http.ServeContent, bypassing

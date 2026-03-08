@@ -650,11 +650,11 @@ func TestMarkdownWithExcalidrawEmbed(t *testing.T) {
 		t.Errorf("expected 200, got %d", w.Code)
 	}
 	body := w.Body.String()
-	if !strings.Contains(body, `class="excalidraw-embed"`) {
-		t.Errorf("expected inline excalidraw embed in rendered markdown, got body:\n%s", body)
+	if !strings.Contains(body, "<img") {
+		t.Errorf("expected img tag for excalidraw embed in rendered markdown, got body:\n%s", body)
 	}
-	if !strings.Contains(body, "ExcalidrawLib.Excalidraw") {
-		t.Error("expected Excalidraw initialization script in page")
+	if !strings.Contains(body, "diagram.excalidraw") {
+		t.Error("expected excalidraw filename in rendered img tag")
 	}
 }
 
@@ -677,6 +677,71 @@ func TestServeExcalidraw_ProgrammaticFetch(t *testing.T) {
 	body := w.Body.String()
 	if body != excalidrawData {
 		t.Errorf("expected raw excalidraw JSON, got %q", body)
+	}
+}
+
+func TestServeExcalidraw_ShadowSVG(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "diagram.excalidraw"), []byte(`{}`), 0644)
+	os.WriteFile(filepath.Join(dir, "diagram.excalidraw.svg"), []byte("<svg>test</svg>"), 0644)
+
+	srv := newSingleVault(dir, "Test")
+
+	// Non-navigation request (from <img> tag) should serve the shadow SVG
+	req := httptest.NewRequest("GET", "/diagram.excalidraw", nil)
+	req.Header.Set("Sec-Fetch-Dest", "image")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "<svg>test</svg>") {
+		t.Errorf("expected shadow SVG content, got %q", body)
+	}
+}
+
+func TestServeExcalidraw_ShadowPNG(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "diagram.excalidraw"), []byte(`{}`), 0644)
+	os.WriteFile(filepath.Join(dir, "diagram.excalidraw.png"), []byte("pngdata"), 0644)
+
+	srv := newSingleVault(dir, "Test")
+
+	req := httptest.NewRequest("GET", "/diagram.excalidraw", nil)
+	req.Header.Set("Sec-Fetch-Dest", "image")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	if body != "pngdata" {
+		t.Errorf("expected shadow PNG content, got %q", body)
+	}
+}
+
+func TestServeExcalidraw_ShadowSVGPreferredOverPNG(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "diagram.excalidraw"), []byte(`{}`), 0644)
+	os.WriteFile(filepath.Join(dir, "diagram.excalidraw.svg"), []byte("<svg>preferred</svg>"), 0644)
+	os.WriteFile(filepath.Join(dir, "diagram.excalidraw.png"), []byte("pngdata"), 0644)
+
+	srv := newSingleVault(dir, "Test")
+
+	req := httptest.NewRequest("GET", "/diagram.excalidraw", nil)
+	req.Header.Set("Sec-Fetch-Dest", "image")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "<svg>preferred</svg>") {
+		t.Errorf("expected shadow SVG preferred over PNG, got %q", body)
 	}
 }
 

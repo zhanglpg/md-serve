@@ -165,25 +165,21 @@ func preprocessObsidian(source []byte, opts *RenderOptions) []byte {
 		if imageExts[ext] {
 			return `<img src="` + href + `" alt="` + alt + `" />`
 		}
-		// Excalidraw embed: prefer shadow SVG/PNG exported by Obsidian
-		if ext == excalidrawExt && vaultDir != "" {
-			filePath := pathForURL
-			if resolved != "" {
-				filePath = resolved
+		// Excalidraw embed: prefer shadow SVG/PNG exported by Obsidian.
+		// If no shadow is found at render time, emit an <img> pointing at
+		// the .excalidraw URL; the server resolves it to the shadow file.
+		if ext == excalidrawExt {
+			if vaultDir != "" {
+				filePath := pathForURL
+				if resolved != "" {
+					filePath = resolved
+				}
+				if shadow := findExcalidrawShadow(vaultDir, filePath); shadow != "" {
+					shadowHref := prefix + "/" + urlEncodePath(shadow)
+					return `<img src="` + shadowHref + `" alt="` + alt + `" />`
+				}
 			}
-			if shadow := findExcalidrawShadow(vaultDir, filePath); shadow != "" {
-				shadowHref := prefix + "/" + urlEncodePath(shadow)
-				return `<img src="` + shadowHref + `" alt="` + alt + `" />`
-			}
-			// Fall back to inline Excalidraw JS viewer
-			absPath := filepath.Join(vaultDir, filepath.Clean(filePath))
-			if data, err := os.ReadFile(absPath); err == nil {
-				escapedJSON := strings.ReplaceAll(string(data), `&`, `&amp;`)
-				escapedJSON = strings.ReplaceAll(escapedJSON, `<`, `&lt;`)
-				escapedJSON = strings.ReplaceAll(escapedJSON, `>`, `&gt;`)
-				escapedJSON = strings.ReplaceAll(escapedJSON, `"`, `&quot;`)
-				return `<div class="excalidraw-embed" data-excalidraw="` + escapedJSON + `"></div>`
-			}
+			return `<img src="` + href + `" alt="` + alt + `" />`
 		}
 		return `<a class="wikilink embed" href="` + href + `">` + alt + `</a>`
 	})
