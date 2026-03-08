@@ -3,6 +3,7 @@ package render
 import (
 	"bytes"
 	"net/url"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -95,12 +96,20 @@ func generateHeadingID(s string) string {
 var (
 	// ==highlight==
 	highlightRe = regexp.MustCompile(`==([^=]+)==`)
+	// ![[embed]] and ![[embed|alt text]] for images/attachments
+	embedRe = regexp.MustCompile(`!\[\[([^\]|]+)(?:\|([^\]]+))?\]\]`)
 	// [[wikilink]] and [[wikilink|display]]
 	wikilinkRe = regexp.MustCompile(`\[\[([^\]|]+)(?:\|([^\]]+))?\]\]`)
 	// > [!type] callout
 	calloutStartRe = regexp.MustCompile(`(?m)^<blockquote>\n<p>\[!(\w+)\]\s*(.*)`)
 	// %%comment%%
 	commentRe = regexp.MustCompile(`%%[^%]*%%`)
+
+	// imageExts lists file extensions that should be rendered as <img> embeds.
+	imageExts = map[string]bool{
+		".png": true, ".jpg": true, ".jpeg": true, ".gif": true,
+		".svg": true, ".webp": true, ".bmp": true, ".ico": true,
+	}
 )
 
 // preprocessObsidian handles syntax that must be processed before goldmark.
@@ -116,8 +125,41 @@ func preprocessObsidian(source []byte) []byte {
 	return []byte(s)
 }
 
+// isAttachment returns true if the target path has a non-markdown file extension,
+// indicating it's an attachment (image, PDF, excalidraw, etc.) rather than a note.
+func isAttachment(target string) bool {
+	ext := strings.ToLower(filepath.Ext(target))
+	return ext != "" && ext != ".md" && ext != ".markdown"
+}
+
+// urlEncodePath URL-encodes each segment of a slash-separated path.
+func urlEncodePath(path string) string {
+	segments := strings.Split(path, "/")
+	for i, p := range segments {
+		segments[i] = url.PathEscape(p)
+	}
+	return strings.Join(segments, "/")
+}
+
 // postprocessObsidian handles HTML-level transformations after rendering.
 func postprocessObsidian(html string) string {
+	// Convert embeds: ![[target]] or ![[target|alt text]]
+	html = embedRe.ReplaceAllStringFunc(html, func(match string) string {
+		parts := embedRe.FindStringSubmatch(match)
+		target := parts[1]
+		alt := target
+		if parts[2] != "" {
+			alt = parts[2]
+		}
+		href := "/" + urlEncodePath(target)
+		ext := strings.ToLower(filepath.Ext(target))
+		if imageExts[ext] {
+			return `<img src="` + href + `" alt="` + alt + `" />`
+		}
+		// Non-image embeds: render as a link
+		return `<a class="wikilink embed" href="` + href + `">` + alt + `</a>`
+	})
+
 	// Convert wiki-links: [[target]] or [[target|display]]
 	html = wikilinkRe.ReplaceAllStringFunc(html, func(match string) string {
 		parts := wikilinkRe.FindStringSubmatch(match)
@@ -126,17 +168,16 @@ func postprocessObsidian(html string) string {
 		if parts[2] != "" {
 			display = parts[2]
 		}
-		// Link to the markdown file path
 		href := target
-		if !strings.HasSuffix(href, ".md") {
+		// Only add .md suffix for note links, not attachments
+		if !isAttachment(href) && !strings.HasSuffix(href, ".md") {
 			href += ".md"
 		}
-		// URL-encode each path segment to handle spaces and special characters
-		segments := strings.Split(href, "/")
-		for i, p := range segments {
-			segments[i] = url.PathEscape(p)
+		// For display text of path links, show only the filename (without path)
+		if parts[2] == "" && strings.Contains(display, "/") {
+			display = filepath.Base(display)
 		}
-		href = strings.Join(segments, "/")
+		href = urlEncodePath(href)
 		return `<a class="wikilink" href="/` + href + `">` + display + `</a>`
 	})
 

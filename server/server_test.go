@@ -436,6 +436,122 @@ func TestServeMarkdownFile_WithSpaces(t *testing.T) {
 	}
 }
 
+// --- Attachment serving tests ---
+
+func TestServeAttachment_DirectPath(t *testing.T) {
+	dir := t.TempDir()
+	// Create a PNG file
+	os.WriteFile(filepath.Join(dir, "photo.png"), []byte("fake png data"), 0644)
+
+	srv := newSingleVault(dir, "Test")
+
+	req := httptest.NewRequest("GET", "/photo.png", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	if body != "fake png data" {
+		t.Errorf("expected raw file content, got %q", body)
+	}
+}
+
+func TestServeAttachment_InSubdir(t *testing.T) {
+	dir := t.TempDir()
+	assetsDir := filepath.Join(dir, "assets")
+	os.Mkdir(assetsDir, 0755)
+	os.WriteFile(filepath.Join(assetsDir, "photo.png"), []byte("fake png data"), 0644)
+
+	srv := newSingleVault(dir, "Test")
+
+	req := httptest.NewRequest("GET", "/assets/photo.png", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", w.Code)
+	}
+}
+
+func TestWikiLinkResolution_Attachment(t *testing.T) {
+	dir := t.TempDir()
+	assetsDir := filepath.Join(dir, "assets")
+	os.Mkdir(assetsDir, 0755)
+	os.WriteFile(filepath.Join(assetsDir, "photo.png"), []byte("fake png data"), 0644)
+
+	srv := newSingleVault(dir, "Test")
+
+	// Request /photo.png which doesn't exist at root - should redirect to /assets/photo.png
+	req := httptest.NewRequest("GET", "/photo.png", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusFound {
+		t.Errorf("expected 302 redirect, got %d", w.Code)
+	}
+	loc := w.Header().Get("Location")
+	if loc != "/assets/photo.png" {
+		t.Errorf("expected redirect to /assets/photo.png, got %q", loc)
+	}
+}
+
+func TestWikiLinkResolution_Excalidraw(t *testing.T) {
+	dir := t.TempDir()
+	drawDir := filepath.Join(dir, "drawings")
+	os.Mkdir(drawDir, 0755)
+	os.WriteFile(filepath.Join(drawDir, "diagram.excalidraw"), []byte("{}"), 0644)
+
+	srv := newSingleVault(dir, "Test")
+
+	req := httptest.NewRequest("GET", "/diagram.excalidraw", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusFound {
+		t.Errorf("expected 302 redirect, got %d", w.Code)
+	}
+	loc := w.Header().Get("Location")
+	if loc != "/drawings/diagram.excalidraw" {
+		t.Errorf("expected redirect to /drawings/diagram.excalidraw, got %q", loc)
+	}
+}
+
+func TestMarkdownWithAttachmentLinks(t *testing.T) {
+	dir := t.TempDir()
+	assetsDir := filepath.Join(dir, "assets")
+	os.Mkdir(assetsDir, 0755)
+	os.WriteFile(filepath.Join(assetsDir, "photo.png"), []byte("fake png"), 0644)
+
+	// Create a markdown file that links to the attachment
+	content := "# Notes\n\nSee [[photo.png]] for the image.\n\n![[photo.png]]\n"
+	os.WriteFile(filepath.Join(dir, "notes.md"), []byte(content), 0644)
+
+	srv := newSingleVault(dir, "Test")
+
+	req := httptest.NewRequest("GET", "/notes.md", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	// The link should NOT have .md appended
+	if strings.Contains(body, "photo.png.md") {
+		t.Error("attachment link should not have .md appended")
+	}
+	// Should contain a proper link to the png
+	if !strings.Contains(body, `href="/photo.png"`) {
+		t.Error("expected link href to point to /photo.png")
+	}
+	// Should contain an img tag for the embed
+	if !strings.Contains(body, `<img src="/photo.png"`) {
+		t.Error("expected img tag for embedded image")
+	}
+}
+
 // --- Breadcrumb tests ---
 
 func TestBuildBreadcrumbs_Root(t *testing.T) {

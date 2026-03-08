@@ -222,6 +222,141 @@ func TestPostprocessObsidian_Wikilinks(t *testing.T) {
 	}
 }
 
+func TestPostprocessObsidian_AttachmentLinks(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		contains string
+		excludes string
+	}{
+		{
+			"png image link",
+			"See [[photo.png]]",
+			`<a class="wikilink" href="/photo.png">photo.png</a>`,
+			".md",
+		},
+		{
+			"jpg image link",
+			"See [[photo.jpg]]",
+			`href="/photo.jpg"`,
+			".md",
+		},
+		{
+			"excalidraw link",
+			"See [[diagram.excalidraw]]",
+			`href="/diagram.excalidraw"`,
+			".md",
+		},
+		{
+			"pdf link",
+			"See [[document.pdf]]",
+			`href="/document.pdf"`,
+			".md",
+		},
+		{
+			"attachment in subfolder",
+			"See [[assets/photo.png]]",
+			`href="/assets/photo.png"`,
+			".md",
+		},
+		{
+			"attachment with display text",
+			"See [[photo.png|My Photo]]",
+			`<a class="wikilink" href="/photo.png">My Photo</a>`,
+			".md",
+		},
+		{
+			"attachment with spaces in name",
+			"See [[my photo.png]]",
+			`href="/my%20photo.png"`,
+			".md",
+		},
+		{
+			"regular note still gets .md",
+			"See [[My Page]]",
+			`href="/My%20Page.md"`,
+			"",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := postprocessObsidian(tc.input)
+			if !strings.Contains(result, tc.contains) {
+				t.Errorf("expected result to contain %q, got %q", tc.contains, result)
+			}
+			if tc.excludes != "" {
+				// Check that the href does NOT contain the excluded suffix
+				// We need to check the href specifically, not the whole output
+				hrefStart := strings.Index(result, `href="`)
+				if hrefStart >= 0 {
+					hrefEnd := strings.Index(result[hrefStart+6:], `"`)
+					href := result[hrefStart+6 : hrefStart+6+hrefEnd]
+					if strings.HasSuffix(href, tc.excludes) {
+						t.Errorf("href %q should not end with %q", href, tc.excludes)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestPostprocessObsidian_ImageEmbeds(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		contains string
+	}{
+		{
+			"png embed",
+			"Here is ![[photo.png]]",
+			`<img src="/photo.png" alt="photo.png" />`,
+		},
+		{
+			"png embed with alt text",
+			"Here is ![[photo.png|A nice photo]]",
+			`<img src="/photo.png" alt="A nice photo" />`,
+		},
+		{
+			"jpg embed",
+			"Here is ![[image.jpg]]",
+			`<img src="/image.jpg" alt="image.jpg" />`,
+		},
+		{
+			"svg embed",
+			"Here is ![[diagram.svg]]",
+			`<img src="/diagram.svg" alt="diagram.svg" />`,
+		},
+		{
+			"embed in subfolder",
+			"Here is ![[assets/photo.png]]",
+			`<img src="/assets/photo.png" alt="assets/photo.png" />`,
+		},
+		{
+			"embed with spaces",
+			"Here is ![[my photo.png]]",
+			`<img src="/my%20photo.png" alt="my photo.png" />`,
+		},
+		{
+			"non-image embed becomes link",
+			"Here is ![[document.pdf]]",
+			`<a class="wikilink embed" href="/document.pdf">document.pdf</a>`,
+		},
+		{
+			"excalidraw embed becomes link",
+			"Here is ![[drawing.excalidraw]]",
+			`<a class="wikilink embed" href="/drawing.excalidraw">drawing.excalidraw</a>`,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := postprocessObsidian(tc.input)
+			if !strings.Contains(result, tc.contains) {
+				t.Errorf("expected result to contain %q, got %q", tc.contains, result)
+			}
+		})
+	}
+}
+
 func TestPostprocessObsidian_Callouts(t *testing.T) {
 	input := "<blockquote>\n<p>[!warning] Be careful"
 	result := postprocessObsidian(input)
