@@ -117,6 +117,14 @@ var (
 	// %%comment%%
 	commentRe = regexp.MustCompile(`%%[^%]*%%`)
 
+	// htmlEscaper escapes HTML-significant characters in display text.
+	htmlEscaper = strings.NewReplacer(
+		"&", "&amp;",
+		"<", "&lt;",
+		">", "&gt;",
+		`"`, "&quot;",
+	)
+
 	// imageExts lists file extensions that should be rendered as <img> embeds.
 	imageExts = map[string]bool{
 		".png": true, ".jpg": true, ".jpeg": true, ".gif": true,
@@ -159,10 +167,36 @@ func preprocessObsidian(source []byte, opts *RenderOptions) []byte {
 		pathForURL := resolveWikiHref(vaultDir, target)
 		href := prefix + "/" + urlEncodePath(pathForURL)
 		ext := strings.ToLower(filepath.Ext(target))
+		escapedAlt := htmlEscaper.Replace(alt)
 		if imageExts[ext] || ext == excalidrawExt {
-			return `<img src="` + href + `" alt="` + alt + `" />`
+			return `<img src="` + href + `" alt="` + escapedAlt + `" />`
 		}
-		return `<a class="wikilink embed" href="` + href + `">` + alt + `</a>`
+		return `<a class="wikilink embed" href="` + href + `">` + escapedAlt + `</a>`
+	})
+
+	// Convert wiki links: [[target]] or [[target|display]]
+	// Processed before goldmark to prevent angle brackets (< > 《 》) in
+	// targets from being interpreted as HTML tags by the markdown parser.
+	s = wikilinkRe.ReplaceAllStringFunc(s, func(match string) string {
+		parts := wikilinkRe.FindStringSubmatch(match)
+		target := parts[1]
+		display := target
+		if parts[2] != "" {
+			display = parts[2]
+		}
+		// For display text of path links, show only the filename (without path)
+		if parts[2] == "" && strings.Contains(display, "/") {
+			display = filepath.Base(display)
+		}
+		// Resolve target in vault, including excalidraw shadow lookup.
+		href := resolveWikiHref(vaultDir, target)
+		// If resolution didn't find the file, use the target with .md suffix
+		// for note links so the URL still looks correct.
+		if href == target && !isAttachment(href) && !strings.HasSuffix(href, ".md") {
+			href += ".md"
+		}
+		href = urlEncodePath(href)
+		return `<a class="wikilink" href="` + prefix + `/` + href + `">` + htmlEscaper.Replace(display) + `</a>`
 	})
 
 	return []byte(s)
@@ -299,36 +333,6 @@ func ResolveWikiTarget(vaultDir, target string) string {
 
 // postprocessObsidian handles HTML-level transformations after rendering.
 func postprocessObsidian(html string, opts *RenderOptions) string {
-	prefix := ""
-	vaultDir := ""
-	if opts != nil {
-		prefix = opts.URLPrefix
-		vaultDir = opts.VaultDir
-	}
-
-	// Convert wiki-links: [[target]] or [[target|display]]
-	html = wikilinkRe.ReplaceAllStringFunc(html, func(match string) string {
-		parts := wikilinkRe.FindStringSubmatch(match)
-		target := parts[1]
-		display := target
-		if parts[2] != "" {
-			display = parts[2]
-		}
-		// For display text of path links, show only the filename (without path)
-		if parts[2] == "" && strings.Contains(display, "/") {
-			display = filepath.Base(display)
-		}
-		// Resolve target in vault, including excalidraw shadow lookup.
-		href := resolveWikiHref(vaultDir, target)
-		// If resolution didn't find the file, use the target with .md suffix
-		// for note links so the URL still looks correct.
-		if href == target && !isAttachment(href) && !strings.HasSuffix(href, ".md") {
-			href += ".md"
-		}
-		href = urlEncodePath(href)
-		return `<a class="wikilink" href="` + prefix + `/` + href + `">` + display + `</a>`
-	})
-
 	// Add lazy loading to all images (both wiki-embed and goldmark-produced)
 	html = strings.ReplaceAll(html, `<img src=`, `<img loading="lazy" src=`)
 
