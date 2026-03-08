@@ -172,7 +172,7 @@ func TestPreprocessObsidian_Highlights(t *testing.T) {
 
 // --- Obsidian postprocessing tests ---
 
-func TestPostprocessObsidian_Wikilinks(t *testing.T) {
+func TestPreprocessObsidian_Wikilinks(t *testing.T) {
 	tests := []struct {
 		name     string
 		input    string
@@ -213,10 +213,40 @@ func TestPostprocessObsidian_Wikilinks(t *testing.T) {
 			"See [[Notes #1]] here",
 			`href="/Notes%20%231.md"`,
 		},
+		{
+			"wikilink with angle brackets",
+			"See [[Page <draft>]] here",
+			`<a class="wikilink" href="/Page%20%3Cdraft%3E.md">Page &lt;draft&gt;</a>`,
+		},
+		{
+			"wikilink with angle brackets in display text",
+			"See [[Page|Show <this>]] here",
+			`>Show &lt;this&gt;</a>`,
+		},
+		{
+			"wikilink with Chinese angle brackets",
+			"See [[Book《Title》]] here",
+			`href="/Book%E3%80%8ATitle%E3%80%8B.md"`,
+		},
+		{
+			"wikilink with Chinese angle brackets display",
+			"See [[Book《Title》|《Title》by Author]] here",
+			`>《Title》by Author</a>`,
+		},
+		{
+			"wikilink with mixed brackets",
+			"See [[Draft <v1> 《Final》]] here",
+			`href="/Draft%20%3Cv1%3E%20%E3%80%8AFinal%E3%80%8B.md"`,
+		},
+		{
+			"wikilink ampersand display escaped",
+			"See [[Q&A]] here",
+			`>Q&amp;A</a>`,
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			result := postprocessObsidian(tc.input, nil)
+			result := string(preprocessObsidian([]byte(tc.input), nil))
 			if !strings.Contains(result, tc.contains) {
 				t.Errorf("expected result to contain %q, got %q", tc.contains, result)
 			}
@@ -224,7 +254,7 @@ func TestPostprocessObsidian_Wikilinks(t *testing.T) {
 	}
 }
 
-func TestPostprocessObsidian_AttachmentLinks(t *testing.T) {
+func TestPreprocessObsidian_AttachmentLinks(t *testing.T) {
 	tests := []struct {
 		name     string
 		input    string
@@ -282,7 +312,7 @@ func TestPostprocessObsidian_AttachmentLinks(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			result := postprocessObsidian(tc.input, nil)
+			result := string(preprocessObsidian([]byte(tc.input), nil))
 			if !strings.Contains(result, tc.contains) {
 				t.Errorf("expected result to contain %q, got %q", tc.contains, result)
 			}
@@ -403,6 +433,68 @@ func TestPostprocessObsidian_CalloutDefaultTitle(t *testing.T) {
 	}
 }
 
+func TestPreprocessObsidian_EmbedWithAngleBrackets(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		contains string
+	}{
+		{
+			"image embed with angle brackets in alt",
+			`![[photo.png|Image <preview>]]`,
+			`<img src="/photo.png" alt="Image &lt;preview&gt;" />`,
+		},
+		{
+			"non-image embed with angle brackets",
+			`![[doc <v2>.pdf]]`,
+			`<a class="wikilink embed" href="/doc%20%3Cv2%3E.pdf">doc &lt;v2&gt;.pdf</a>`,
+		},
+		{
+			"embed with Chinese angle brackets",
+			`![[photo《special》.png]]`,
+			`<img src="/photo%E3%80%8Aspecial%E3%80%8B.png" alt="photo《special》.png" />`,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := string(preprocessObsidian([]byte(tc.input), nil))
+			if !strings.Contains(result, tc.contains) {
+				t.Errorf("expected result to contain %q, got %q", tc.contains, result)
+			}
+		})
+	}
+}
+
+func TestMarkdown_AngleBracketsInWikilinks(t *testing.T) {
+	// End-to-end test: angle brackets inside wiki links should not be
+	// interpreted as HTML tags by goldmark.
+	input := []byte("See [[Page <draft>]] for details")
+	result, err := Markdown(input, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(result.HTML, `href="/Page%20%3Cdraft%3E.md"`) {
+		t.Errorf("expected angle brackets URL-encoded in href, got %q", result.HTML)
+	}
+	if !strings.Contains(result.HTML, `>Page &lt;draft&gt;</a>`) {
+		t.Errorf("expected angle brackets HTML-escaped in display text, got %q", result.HTML)
+	}
+}
+
+func TestMarkdown_ChineseBracketsInWikilinks(t *testing.T) {
+	input := []byte("See [[Book《Title》]] here")
+	result, err := Markdown(input, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(result.HTML, `href="/Book%E3%80%8ATitle%E3%80%8B.md"`) {
+		t.Errorf("expected Chinese brackets URL-encoded in href, got %q", result.HTML)
+	}
+	if !strings.Contains(result.HTML, `>Book《Title》</a>`) {
+		t.Errorf("expected Chinese brackets preserved in display text, got %q", result.HTML)
+	}
+}
+
 // --- Integration test: full markdown with Obsidian features ---
 
 func TestMarkdown_ObsidianFeatures(t *testing.T) {
@@ -433,7 +525,7 @@ Check [[Other Page]] for more info.
 	}
 }
 
-func TestPostprocessObsidian_WithVaultResolution(t *testing.T) {
+func TestPreprocessObsidian_WithVaultResolution(t *testing.T) {
 	dir := t.TempDir()
 	subDir := filepath.Join(dir, "sub")
 	os.MkdirAll(subDir, 0755)
@@ -443,26 +535,26 @@ func TestPostprocessObsidian_WithVaultResolution(t *testing.T) {
 	opts := &RenderOptions{VaultDir: dir, URLPrefix: "/vault1"}
 
 	// Wiki link to file in subdirectory
-	result := postprocessObsidian("[[Target]]", opts)
+	result := string(preprocessObsidian([]byte("[[Target]]"), opts))
 	if !strings.Contains(result, `href="/vault1/sub/Target.md"`) {
 		t.Errorf("expected resolved path with vault prefix, got %q", result)
 	}
 
 	// Wiki link to file at root
-	result = postprocessObsidian("[[Root]]", opts)
+	result = string(preprocessObsidian([]byte("[[Root]]"), opts))
 	if !strings.Contains(result, `href="/vault1/Root.md"`) {
 		t.Errorf("expected resolved path at root with vault prefix, got %q", result)
 	}
 
 	// Wiki link with no prefix (single-vault mode)
 	optsNoPrefix := &RenderOptions{VaultDir: dir, URLPrefix: ""}
-	result = postprocessObsidian("[[Target]]", optsNoPrefix)
+	result = string(preprocessObsidian([]byte("[[Target]]"), optsNoPrefix))
 	if !strings.Contains(result, `href="/sub/Target.md"`) {
 		t.Errorf("expected resolved path without prefix, got %q", result)
 	}
 
 	// Wiki link to non-existent file falls back to original behavior
-	result = postprocessObsidian("[[NonExistent]]", opts)
+	result = string(preprocessObsidian([]byte("[[NonExistent]]"), opts))
 	if !strings.Contains(result, `href="/vault1/NonExistent.md"`) {
 		t.Errorf("expected fallback path with prefix, got %q", result)
 	}
@@ -617,27 +709,27 @@ func TestPreprocessObsidian_ExcalidrawEmbed_ICloudShadowPNG(t *testing.T) {
 	}
 }
 
-func TestPostprocessObsidian_ExcalidrawWikilink_ICloudShadow(t *testing.T) {
+func TestPreprocessObsidian_ExcalidrawWikilink_ICloudShadow(t *testing.T) {
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "drawing.excalidraw"), []byte(`{}`), 0644)
 	os.WriteFile(filepath.Join(dir, ".drawing.excalidraw.svg.icloud"), []byte("placeholder"), 0644)
 
 	opts := &RenderOptions{VaultDir: dir, URLPrefix: ""}
 
-	result := postprocessObsidian("See [[drawing.excalidraw]]", opts)
+	result := string(preprocessObsidian([]byte("See [[drawing.excalidraw]]"), opts))
 	if !strings.Contains(result, `href="/drawing.excalidraw.svg"`) {
 		t.Errorf("expected wikilink href to point to iCloud-evicted shadow SVG, got %q", result)
 	}
 }
 
-func TestPostprocessObsidian_ExcalidrawWikilink_WithShadow(t *testing.T) {
+func TestPreprocessObsidian_ExcalidrawWikilink_WithShadow(t *testing.T) {
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "drawing.excalidraw"), []byte(`{}`), 0644)
 	os.WriteFile(filepath.Join(dir, "drawing.excalidraw.svg"), []byte("<svg></svg>"), 0644)
 
 	opts := &RenderOptions{VaultDir: dir, URLPrefix: ""}
 
-	result := postprocessObsidian("See [[drawing.excalidraw]]", opts)
+	result := string(preprocessObsidian([]byte("See [[drawing.excalidraw]]"), opts))
 	if !strings.Contains(result, `href="/drawing.excalidraw.svg"`) {
 		t.Errorf("expected wikilink href to point to shadow SVG, got %q", result)
 	}
@@ -660,7 +752,7 @@ func TestPreprocessObsidian_ExcalidrawEmbed_VaultWideResolution(t *testing.T) {
 	}
 }
 
-func TestPostprocessObsidian_ExcalidrawWikilink_VaultWideResolution(t *testing.T) {
+func TestPreprocessObsidian_ExcalidrawWikilink_VaultWideResolution(t *testing.T) {
 	dir := t.TempDir()
 	subDir := filepath.Join(dir, "drawings", "nested")
 	os.MkdirAll(subDir, 0755)
@@ -669,7 +761,7 @@ func TestPostprocessObsidian_ExcalidrawWikilink_VaultWideResolution(t *testing.T
 
 	opts := &RenderOptions{VaultDir: dir, URLPrefix: ""}
 
-	result := postprocessObsidian("See [[drawing.excalidraw]]", opts)
+	result := string(preprocessObsidian([]byte("See [[drawing.excalidraw]]"), opts))
 	if !strings.Contains(result, `drawing.excalidraw.svg"`) {
 		t.Errorf("expected vault-wide resolution to find nested shadow SVG, got %q", result)
 	}
