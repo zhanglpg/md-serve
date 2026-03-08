@@ -284,6 +284,9 @@ func postprocessObsidian(html string, opts *RenderOptions) string {
 		return `<a class="wikilink" href="` + prefix + `/` + href + `">` + display + `</a>`
 	})
 
+	// Add lazy loading to all images (both wiki-embed and goldmark-produced)
+	html = strings.ReplaceAll(html, `<img src=`, `<img loading="lazy" src=`)
+
 	// Convert callouts: > [!type] title
 	html = calloutStartRe.ReplaceAllStringFunc(html, func(match string) string {
 		parts := calloutStartRe.FindStringSubmatch(match)

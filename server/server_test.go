@@ -730,7 +730,7 @@ func TestMarkdownWithAttachmentLinks(t *testing.T) {
 		t.Errorf("expected link href to point to /assets/photo.png, got body: %s", body)
 	}
 	// Should contain an img tag for the embed with resolved path
-	if !strings.Contains(body, `<img src="/assets/photo.png"`) {
+	if !strings.Contains(body, `src="/assets/photo.png"`) {
 		t.Errorf("expected img tag for embedded image at /assets/photo.png, got body: %s", body)
 	}
 }
@@ -1046,7 +1046,7 @@ func TestMultiVault_WikiLinkEmbed(t *testing.T) {
 	body := w.Body.String()
 
 	// Embedded image should resolve to the actual path with vault prefix
-	if !strings.Contains(body, `<img src="/docs/assets/photo.png"`) {
+	if !strings.Contains(body, `src="/docs/assets/photo.png"`) {
 		t.Errorf("expected img src to resolve to /docs/assets/photo.png, got body:\n%s", body)
 	}
 }

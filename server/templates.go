@@ -506,6 +506,22 @@ document.addEventListener("DOMContentLoaded", function() {
   if (document.querySelector('.mermaid')) {
     mermaid.initialize({ startOnLoad: true, theme: window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default' });
   }
+  // Retry failed images with exponential backoff (helps with slow iCloud file reads)
+  var mdContent = document.querySelector('.md-content');
+  if (mdContent) {
+    mdContent.addEventListener('error', function(e) {
+      if (e.target.tagName !== 'IMG') return;
+      var img = e.target;
+      var retries = parseInt(img.dataset.retryCount || '0', 10);
+      if (retries >= 3) return;
+      img.dataset.retryCount = retries + 1;
+      var delay = Math.pow(2, retries) * 1000;
+      setTimeout(function() {
+        var src = img.getAttribute('src').split('?')[0];
+        img.src = src + '?_retry=' + (retries + 1) + '&_t=' + Date.now();
+      }, delay);
+    }, true);
+  }
 });
 </script>
 </body>
@@ -627,7 +643,7 @@ var imageViewerTmpl = template.Must(template.New("imageviewer").Parse(`<!DOCTYPE
     </nav>
     <div class="image-viewer">
       <div class="image-name">{{.FileName}}</div>
-      <img src="{{.ImageURL}}" alt="{{.FileName}}">
+      <img src="{{.ImageURL}}" alt="{{.FileName}}" loading="lazy">
       <div class="image-actions">
         <a href="{{.ImageURL}}" download>Download</a>
         <a href="{{.ImageURL}}" target="_blank">Open raw</a>
