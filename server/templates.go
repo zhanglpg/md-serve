@@ -327,9 +327,6 @@ a:hover { color: var(--link-hover); text-decoration: underline; }
 /* Mermaid diagrams */
 .mermaid { margin: 1em 0; text-align: center; }
 
-/* Excalidraw embeds */
-.excalidraw-embed { width: 100%; height: 400px; margin: 1em 0; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
-
 /* Footnotes */
 .footnotes { margin-top: 2em; border-top: 1px solid var(--border); padding-top: 1em; font-size: 0.9em; }
 
@@ -439,49 +436,6 @@ var pageTmpl = template.Must(template.New("page").Parse(`<!DOCTYPE html>
 <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
-<script>
-var _hasExcalidrawEmbeds = document.querySelector('.excalidraw-embed') !== null;
-if (_hasExcalidrawEmbeds) {
-  var s1 = document.createElement('script');
-  s1.src = 'https://unpkg.com/react@18/umd/react.production.min.js';
-  s1.onload = function() {
-    var s2 = document.createElement('script');
-    s2.src = 'https://unpkg.com/react-dom@18/umd/react-dom.production.min.js';
-    s2.onload = function() {
-      var s3 = document.createElement('script');
-      s3.src = 'https://unpkg.com/@excalidraw/excalidraw/dist/excalidraw.production.min.js';
-      s3.onload = function() {
-        var isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-        document.querySelectorAll('.excalidraw-embed').forEach(function(el) {
-          try {
-            var data = JSON.parse(el.getAttribute('data-excalidraw'));
-            var root = ReactDOM.createRoot(el);
-            root.render(React.createElement(ExcalidrawLib.Excalidraw, {
-              initialData: {
-                elements: data.elements || [],
-                appState: Object.assign({}, data.appState || {}, {
-                  viewBackgroundColor: isDark ? '#1a1b26' : (data.appState && data.appState.viewBackgroundColor) || '#ffffff',
-                  theme: isDark ? 'dark' : 'light'
-                }),
-                files: data.files || {}
-              },
-              viewModeEnabled: true,
-              zenModeEnabled: true,
-              gridModeEnabled: false,
-              theme: isDark ? 'dark' : 'light'
-            }));
-          } catch(e) {
-            el.textContent = 'Failed to render Excalidraw drawing';
-          }
-        });
-      };
-      document.head.appendChild(s3);
-    };
-    document.head.appendChild(s2);
-  };
-  document.head.appendChild(s1);
-}
-</script>
 <script>
 document.addEventListener("DOMContentLoaded", function() {
   // Render LaTeX math

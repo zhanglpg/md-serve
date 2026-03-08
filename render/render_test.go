@@ -344,9 +344,9 @@ func TestPreprocessObsidian_ImageEmbeds(t *testing.T) {
 			`<a class="wikilink embed" href="/document.pdf">document.pdf</a>`,
 		},
 		{
-			"excalidraw embed becomes link",
+			"excalidraw embed becomes img",
 			"Here is ![[drawing.excalidraw]]",
-			`<a class="wikilink embed" href="/drawing.excalidraw">drawing.excalidraw</a>`,
+			`<img src="/drawing.excalidraw" alt="drawing.excalidraw" />`,
 		},
 		{
 			"avif embed",
@@ -544,13 +544,14 @@ func TestPreprocessObsidian_ExcalidrawEmbed_NoShadowFallback(t *testing.T) {
 
 	opts := &RenderOptions{VaultDir: dir, URLPrefix: ""}
 
-	// Without shadow file, should fall back to inline Excalidraw JS viewer
+	// Without shadow file, should render as <img> pointing to the .excalidraw URL
+	// so the server can resolve to the shadow at request time
 	result := string(preprocessObsidian([]byte("![[diagram.excalidraw]]"), opts))
-	if !strings.Contains(result, `class="excalidraw-embed"`) {
-		t.Errorf("expected excalidraw-embed div fallback, got %q", result)
+	if !strings.Contains(result, `<img src="/drawings/diagram.excalidraw"`) {
+		t.Errorf("expected img tag with excalidraw path, got %q", result)
 	}
-	if !strings.Contains(result, `data-excalidraw="`) {
-		t.Errorf("expected data-excalidraw attribute, got %q", result)
+	if strings.Contains(result, `class="excalidraw-embed"`) {
+		t.Error("should not produce excalidraw-embed div")
 	}
 }
 
@@ -571,13 +572,17 @@ func TestPreprocessObsidian_ExcalidrawEmbed_FileNotFound(t *testing.T) {
 	dir := t.TempDir()
 	opts := &RenderOptions{VaultDir: dir, URLPrefix: ""}
 
-	// When file doesn't exist, should fall back to a link
+	// When file doesn't exist, should still render as <img> so the server
+	// can attempt shadow resolution at request time
 	result := string(preprocessObsidian([]byte("![[missing.excalidraw]]"), opts))
+	if !strings.Contains(result, `<img src="/missing.excalidraw"`) {
+		t.Errorf("expected img tag for missing excalidraw file, got %q", result)
+	}
 	if strings.Contains(result, `class="excalidraw-embed"`) {
 		t.Error("should not produce excalidraw-embed for missing file")
 	}
-	if !strings.Contains(result, `class="wikilink embed"`) {
-		t.Errorf("expected fallback link for missing excalidraw file, got %q", result)
+	if strings.Contains(result, `class="wikilink embed"`) {
+		t.Error("should not produce wikilink embed link for excalidraw file")
 	}
 }
 
