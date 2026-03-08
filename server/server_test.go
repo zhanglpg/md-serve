@@ -542,13 +542,13 @@ func TestMarkdownWithAttachmentLinks(t *testing.T) {
 	if strings.Contains(body, "photo.png.md") {
 		t.Error("attachment link should not have .md appended")
 	}
-	// Should contain a proper link to the png
-	if !strings.Contains(body, `href="/photo.png"`) {
-		t.Error("expected link href to point to /photo.png")
+	// Should contain a proper link to the resolved path (photo.png is in assets/)
+	if !strings.Contains(body, `href="/assets/photo.png"`) {
+		t.Errorf("expected link href to point to /assets/photo.png, got body: %s", body)
 	}
-	// Should contain an img tag for the embed
-	if !strings.Contains(body, `<img src="/photo.png"`) {
-		t.Error("expected img tag for embedded image")
+	// Should contain an img tag for the embed with resolved path
+	if !strings.Contains(body, `<img src="/assets/photo.png"`) {
+		t.Errorf("expected img tag for embedded image at /assets/photo.png, got body: %s", body)
 	}
 }
 
@@ -799,5 +799,97 @@ func TestMultiVault_Breadcrumbs(t *testing.T) {
 	}
 	if crumbs[3].Name != "page" {
 		t.Errorf("crumb 3: expected 'page', got %q", crumbs[3].Name)
+	}
+}
+
+func TestMultiVault_WikiLinkRendering(t *testing.T) {
+	dir1 := t.TempDir()
+	dir2 := t.TempDir()
+
+	// Create files in vault1 (notes)
+	subDir := filepath.Join(dir1, "sub")
+	os.MkdirAll(subDir, 0755)
+	os.WriteFile(filepath.Join(subDir, "Target Page.md"), []byte("# Target"), 0644)
+
+	// Create a markdown file with a wiki link to Target Page
+	content := "# Index\n\nSee [[Target Page]] for details.\n"
+	os.WriteFile(filepath.Join(dir1, "index.md"), []byte(content), 0644)
+
+	// Create files in vault2 (wiki)
+	os.WriteFile(filepath.Join(dir2, "other.md"), []byte("# Other"), 0644)
+
+	srv := New([]Vault{
+		{Name: "notes", Path: dir1},
+		{Name: "wiki", Path: dir2},
+	}, "Test")
+
+	// Request the index page from the notes vault
+	req := httptest.NewRequest("GET", "/notes/index.md", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+
+	// The wiki link should resolve to the actual file path with vault prefix
+	if !strings.Contains(body, `href="/notes/sub/Target%20Page.md"`) {
+		t.Errorf("expected wiki link to resolve to /notes/sub/Target%%20Page.md, got body:\n%s", body)
+	}
+}
+
+func TestMultiVault_WikiLinkEmbed(t *testing.T) {
+	dir := t.TempDir()
+	assetsDir := filepath.Join(dir, "assets")
+	os.MkdirAll(assetsDir, 0755)
+	os.WriteFile(filepath.Join(assetsDir, "photo.png"), []byte("fake png"), 0644)
+
+	content := "# Notes\n\n![[photo.png]]\n"
+	os.WriteFile(filepath.Join(dir, "page.md"), []byte(content), 0644)
+
+	srv := New([]Vault{
+		{Name: "docs", Path: dir},
+		{Name: "wiki", Path: t.TempDir()},
+	}, "Test")
+
+	req := httptest.NewRequest("GET", "/docs/page.md", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+
+	// Embedded image should resolve to the actual path with vault prefix
+	if !strings.Contains(body, `<img src="/docs/assets/photo.png"`) {
+		t.Errorf("expected img src to resolve to /docs/assets/photo.png, got body:\n%s", body)
+	}
+}
+
+func TestSingleVault_WikiLinkResolvesPath(t *testing.T) {
+	dir := t.TempDir()
+	subDir := filepath.Join(dir, "notes")
+	os.MkdirAll(subDir, 0755)
+	os.WriteFile(filepath.Join(subDir, "Deep Page.md"), []byte("# Deep"), 0644)
+
+	content := "# Home\n\nGo to [[Deep Page]].\n"
+	os.WriteFile(filepath.Join(dir, "index.md"), []byte(content), 0644)
+
+	srv := newSingleVault(dir, "Test")
+
+	req := httptest.NewRequest("GET", "/index.md", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+
+	// In single-vault mode, wiki link should resolve to actual path (no vault prefix)
+	if !strings.Contains(body, `href="/notes/Deep%20Page.md"`) {
+		t.Errorf("expected wiki link to resolve to /notes/Deep%%20Page.md, got body:\n%s", body)
 	}
 }

@@ -2,7 +2,9 @@ package render
 
 import (
 	"bytes"
+	"io/fs"
 	"net/url"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -27,8 +29,17 @@ type Result struct {
 	TOC  []TOCEntry
 }
 
+// RenderOptions provides context for resolving wiki links during rendering.
+type RenderOptions struct {
+	// VaultDir is the root directory of the vault, used to search for wiki link targets.
+	VaultDir string
+	// URLPrefix is prepended to all generated wiki link hrefs (e.g. "/vaultName" in multi-vault mode).
+	URLPrefix string
+}
+
 // Markdown converts markdown source bytes to an HTML Result with TOC.
-func Markdown(source []byte) (*Result, error) {
+// If opts is provided, wiki links are resolved by searching the vault directory.
+func Markdown(source []byte, opts *RenderOptions) (*Result, error) {
 	// Pre-process Obsidian-specific syntax before goldmark parsing
 	processed := preprocessObsidian(source)
 
@@ -59,7 +70,7 @@ func Markdown(source []byte) (*Result, error) {
 	toc := extractTOC(source)
 
 	// Post-process for remaining Obsidian features
-	output := postprocessObsidian(buf.String())
+	output := postprocessObsidian(buf.String(), opts)
 
 	return &Result{
 		HTML: output,
@@ -141,8 +152,62 @@ func urlEncodePath(path string) string {
 	return strings.Join(segments, "/")
 }
 
+// resolveWikiTarget searches the vault directory for a file matching the target.
+// It returns the relative path from the vault root, or empty string if not found.
+func resolveWikiTarget(vaultDir, target string) string {
+	if vaultDir == "" {
+		return ""
+	}
+
+	// Determine the filename to search for
+	searchName := target
+	if !isAttachment(target) && !strings.HasSuffix(strings.ToLower(target), ".md") {
+		searchName = target + ".md"
+	}
+
+	// First, try direct path relative to vault root
+	directPath := filepath.Join(vaultDir, filepath.Clean(searchName))
+	if _, err := os.Stat(directPath); err == nil {
+		rel, _ := filepath.Rel(vaultDir, directPath)
+		return rel
+	}
+
+	// Search by basename (case-insensitive), matching Obsidian behavior
+	basename := strings.ToLower(filepath.Base(searchName))
+	altBasename := ""
+	if strings.Contains(basename, " ") {
+		altBasename = strings.ReplaceAll(basename, " ", "-")
+	} else if strings.Contains(basename, "-") {
+		altBasename = strings.ReplaceAll(basename, "-", " ")
+	}
+
+	var match string
+	filepath.WalkDir(vaultDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil
+		}
+		name := strings.ToLower(filepath.Base(path))
+		if name == basename || (altBasename != "" && name == altBasename) {
+			rel, err := filepath.Rel(vaultDir, path)
+			if err == nil {
+				match = rel
+				return filepath.SkipAll
+			}
+		}
+		return nil
+	})
+	return match
+}
+
 // postprocessObsidian handles HTML-level transformations after rendering.
-func postprocessObsidian(html string) string {
+func postprocessObsidian(html string, opts *RenderOptions) string {
+	prefix := ""
+	vaultDir := ""
+	if opts != nil {
+		prefix = opts.URLPrefix
+		vaultDir = opts.VaultDir
+	}
+
 	// Convert embeds: ![[target]] or ![[target|alt text]]
 	html = embedRe.ReplaceAllStringFunc(html, func(match string) string {
 		parts := embedRe.FindStringSubmatch(match)
@@ -151,7 +216,13 @@ func postprocessObsidian(html string) string {
 		if parts[2] != "" {
 			alt = parts[2]
 		}
-		href := "/" + urlEncodePath(target)
+		// Resolve the embed target path in the vault
+		resolved := resolveWikiTarget(vaultDir, target)
+		pathForURL := target
+		if resolved != "" {
+			pathForURL = resolved
+		}
+		href := prefix + "/" + urlEncodePath(pathForURL)
 		ext := strings.ToLower(filepath.Ext(target))
 		if imageExts[ext] {
 			return `<img src="` + href + `" alt="` + alt + `" />`
@@ -177,8 +248,13 @@ func postprocessObsidian(html string) string {
 		if parts[2] == "" && strings.Contains(display, "/") {
 			display = filepath.Base(display)
 		}
+		// Resolve the wiki link target path in the vault
+		resolved := resolveWikiTarget(vaultDir, target)
+		if resolved != "" {
+			href = resolved
+		}
 		href = urlEncodePath(href)
-		return `<a class="wikilink" href="/` + href + `">` + display + `</a>`
+		return `<a class="wikilink" href="` + prefix + `/` + href + `">` + display + `</a>`
 	})
 
 	// Convert callouts: > [!type] title

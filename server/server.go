@@ -155,7 +155,10 @@ func (s *Server) serveMarkdown(w http.ResponseWriter, r *http.Request, vaultName
 		return
 	}
 
-	result, err := render.Markdown(data)
+	result, err := render.Markdown(data, &render.RenderOptions{
+		VaultDir:  rootDir,
+		URLPrefix: s.vaultPrefix(vaultName),
+	})
 	if err != nil {
 		http.Error(w, "Error rendering markdown", http.StatusInternalServerError)
 		return
