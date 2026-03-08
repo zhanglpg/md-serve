@@ -299,7 +299,7 @@ func ResolveWikiTarget(vaultDir, target string) string {
 
 	// First, try direct path relative to vault root
 	directPath := filepath.Join(vaultDir, filepath.Clean(searchName))
-	if _, err := os.Stat(directPath); err == nil {
+	if fileExistsOrICloud(directPath) {
 		rel, _ := filepath.Rel(vaultDir, directPath)
 		return rel
 	}
@@ -319,8 +319,17 @@ func ResolveWikiTarget(vaultDir, target string) string {
 			return nil
 		}
 		name := strings.ToLower(filepath.Base(path))
+		// Recognize iCloud placeholders: .photo.png.icloud → photo.png
+		realPath := path
+		if strings.HasPrefix(name, ".") && strings.HasSuffix(name, ".icloud") {
+			name = strings.TrimPrefix(name, ".")
+			name = strings.TrimSuffix(name, ".icloud")
+			// Reconstruct the original file path (without iCloud wrapper)
+			realPath = filepath.Join(filepath.Dir(path), strings.TrimPrefix(filepath.Base(path), "."))
+			realPath = strings.TrimSuffix(realPath, ".icloud")
+		}
 		if name == basename || (altBasename != "" && name == altBasename) {
-			rel, err := filepath.Rel(vaultDir, path)
+			rel, err := filepath.Rel(vaultDir, realPath)
 			if err == nil {
 				match = rel
 				return filepath.SkipAll

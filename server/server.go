@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/zhanglpg/md-serve/render"
 )
@@ -121,12 +120,15 @@ func (s *Server) handleVaultRequest(w http.ResponseWriter, r *http.Request, vaul
 			s.serveMarkdown(w, r, vaultName, rootDir, mdPath, reqPath+".md")
 			return
 		}
-		// Obsidian-style wiki link resolution
-		if resolved := render.ResolveWikiTarget(rootDir, filepath.Base(fullPath)); resolved != "" {
+		// Obsidian-style wiki link resolution — only redirect if the file
+		// resolves to a different location (avoids redirect loops for
+		// iCloud placeholders at the same path).
+		cleanReq := strings.TrimPrefix(filepath.Clean(reqPath), "/")
+		if resolved := render.ResolveWikiTarget(rootDir, filepath.Base(fullPath)); resolved != "" && resolved != cleanReq {
 			http.Redirect(w, r, s.vaultPrefix(vaultName)+"/"+urlEncodePath(resolved), http.StatusFound)
 			return
 		}
-		if resolved := render.ResolveWikiTarget(rootDir, filepath.Base(mdPath)); resolved != "" {
+		if resolved := render.ResolveWikiTarget(rootDir, filepath.Base(mdPath)); resolved != "" && resolved != cleanReq+".md" {
 			http.Redirect(w, r, s.vaultPrefix(vaultName)+"/"+urlEncodePath(resolved), http.StatusFound)
 			return
 		}
@@ -498,20 +500,6 @@ func (s *Server) serveExcalidrawShadow(w http.ResponseWriter, r *http.Request, e
 // http.ServeFile's URL path checks that can interfere with vault paths.
 func serveFileContent(w http.ResponseWriter, r *http.Request, filePath string) {
 	f, err := os.Open(filePath)
-	if err != nil && hasICloudPlaceholder(filePath) {
-		// Trigger iCloud download by accessing the placeholder.
-		if pf, pfErr := os.Open(icloudPlaceholderPath(filePath)); pfErr == nil {
-			pf.Close()
-		}
-		// Brief retry while file materializes from iCloud.
-		for i := 0; i < 5; i++ {
-			time.Sleep(500 * time.Millisecond)
-			f, err = os.Open(filePath)
-			if err == nil {
-				break
-			}
-		}
-	}
 	if err != nil {
 		http.NotFound(w, r)
 		return
