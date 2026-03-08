@@ -165,12 +165,17 @@ func preprocessObsidian(source []byte, opts *RenderOptions) []byte {
 		if imageExts[ext] {
 			return `<img src="` + href + `" alt="` + alt + `" />`
 		}
-		// Inline Excalidraw viewer: read the file and embed the JSON data
+		// Excalidraw embed: prefer shadow SVG/PNG exported by Obsidian
 		if ext == excalidrawExt && vaultDir != "" {
 			filePath := pathForURL
 			if resolved != "" {
 				filePath = resolved
 			}
+			if shadow := findExcalidrawShadow(vaultDir, filePath); shadow != "" {
+				shadowHref := prefix + "/" + urlEncodePath(shadow)
+				return `<img src="` + shadowHref + `" alt="` + alt + `" />`
+			}
+			// Fall back to inline Excalidraw JS viewer
 			absPath := filepath.Join(vaultDir, filepath.Clean(filePath))
 			if data, err := os.ReadFile(absPath); err == nil {
 				escapedJSON := strings.ReplaceAll(string(data), `&`, `&amp;`)
@@ -184,6 +189,40 @@ func preprocessObsidian(source []byte, opts *RenderOptions) []byte {
 	})
 
 	return []byte(s)
+}
+
+// findExcalidrawShadow looks for a shadow SVG or PNG file exported by Obsidian
+// alongside the .excalidraw file. Returns the relative path from vaultDir if found.
+// Also checks for iCloud placeholder files (.<name>.icloud) so that evicted
+// shadow files are still discovered; the server will handle materialization
+// when the browser actually requests the image.
+func findExcalidrawShadow(vaultDir, filePath string) string {
+	if vaultDir == "" {
+		return ""
+	}
+	absBase := filepath.Join(vaultDir, filepath.Clean(filePath))
+	for _, ext := range []string{".svg", ".png"} {
+		candidate := absBase + ext
+		if fileExistsOrICloud(candidate) {
+			rel, _ := filepath.Rel(vaultDir, candidate)
+			return rel
+		}
+	}
+	return ""
+}
+
+// fileExistsOrICloud returns true if the file exists on disk or has an
+// iCloud placeholder (.<name>.icloud), indicating it is evicted but available.
+func fileExistsOrICloud(fullPath string) bool {
+	if _, err := os.Stat(fullPath); err == nil {
+		return true
+	}
+	// Check for macOS iCloud placeholder: dir/.<basename>.icloud
+	dir := filepath.Dir(fullPath)
+	base := filepath.Base(fullPath)
+	placeholder := filepath.Join(dir, "."+base+".icloud")
+	_, err := os.Stat(placeholder)
+	return err == nil
 }
 
 // isAttachment returns true if the target path has a non-markdown file extension,
@@ -279,6 +318,12 @@ func postprocessObsidian(html string, opts *RenderOptions) string {
 		resolved := resolveWikiTarget(vaultDir, target)
 		if resolved != "" {
 			href = resolved
+		}
+		// For .excalidraw links, point to shadow SVG/PNG if available
+		if strings.ToLower(filepath.Ext(href)) == excalidrawExt && vaultDir != "" {
+			if shadow := findExcalidrawShadow(vaultDir, href); shadow != "" {
+				href = shadow
+			}
 		}
 		href = urlEncodePath(href)
 		return `<a class="wikilink" href="` + prefix + `/` + href + `">` + display + `</a>`

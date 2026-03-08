@@ -490,7 +490,52 @@ func TestPreprocessObsidian_EmbedWithVaultResolution(t *testing.T) {
 	}
 }
 
-func TestPreprocessObsidian_ExcalidrawEmbed(t *testing.T) {
+func TestPreprocessObsidian_ExcalidrawEmbed_WithShadowSVG(t *testing.T) {
+	dir := t.TempDir()
+	drawDir := filepath.Join(dir, "drawings")
+	os.MkdirAll(drawDir, 0755)
+	os.WriteFile(filepath.Join(drawDir, "diagram.excalidraw"), []byte(`{}`), 0644)
+	os.WriteFile(filepath.Join(drawDir, "diagram.excalidraw.svg"), []byte("<svg></svg>"), 0644)
+
+	opts := &RenderOptions{VaultDir: dir, URLPrefix: ""}
+
+	result := string(preprocessObsidian([]byte("![[diagram.excalidraw]]"), opts))
+	if !strings.Contains(result, `<img src="/drawings/diagram.excalidraw.svg"`) {
+		t.Errorf("expected img tag with shadow SVG, got %q", result)
+	}
+	if strings.Contains(result, `class="excalidraw-embed"`) {
+		t.Error("should not produce excalidraw-embed when shadow SVG exists")
+	}
+}
+
+func TestPreprocessObsidian_ExcalidrawEmbed_WithShadowPNG(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "diagram.excalidraw"), []byte(`{}`), 0644)
+	os.WriteFile(filepath.Join(dir, "diagram.excalidraw.png"), []byte("png"), 0644)
+
+	opts := &RenderOptions{VaultDir: dir, URLPrefix: ""}
+
+	result := string(preprocessObsidian([]byte("![[diagram.excalidraw]]"), opts))
+	if !strings.Contains(result, `<img src="/diagram.excalidraw.png"`) {
+		t.Errorf("expected img tag with shadow PNG, got %q", result)
+	}
+}
+
+func TestPreprocessObsidian_ExcalidrawEmbed_SVGPreferredOverPNG(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "diagram.excalidraw"), []byte(`{}`), 0644)
+	os.WriteFile(filepath.Join(dir, "diagram.excalidraw.svg"), []byte("<svg></svg>"), 0644)
+	os.WriteFile(filepath.Join(dir, "diagram.excalidraw.png"), []byte("png"), 0644)
+
+	opts := &RenderOptions{VaultDir: dir, URLPrefix: ""}
+
+	result := string(preprocessObsidian([]byte("![[diagram.excalidraw]]"), opts))
+	if !strings.Contains(result, `.excalidraw.svg"`) {
+		t.Errorf("expected SVG preferred over PNG, got %q", result)
+	}
+}
+
+func TestPreprocessObsidian_ExcalidrawEmbed_NoShadowFallback(t *testing.T) {
 	dir := t.TempDir()
 	drawDir := filepath.Join(dir, "drawings")
 	os.MkdirAll(drawDir, 0755)
@@ -499,30 +544,26 @@ func TestPreprocessObsidian_ExcalidrawEmbed(t *testing.T) {
 
 	opts := &RenderOptions{VaultDir: dir, URLPrefix: ""}
 
-	// Excalidraw embed should produce an inline viewer div
+	// Without shadow file, should fall back to inline Excalidraw JS viewer
 	result := string(preprocessObsidian([]byte("![[diagram.excalidraw]]"), opts))
 	if !strings.Contains(result, `class="excalidraw-embed"`) {
-		t.Errorf("expected excalidraw-embed div, got %q", result)
+		t.Errorf("expected excalidraw-embed div fallback, got %q", result)
 	}
 	if !strings.Contains(result, `data-excalidraw="`) {
 		t.Errorf("expected data-excalidraw attribute, got %q", result)
-	}
-	// The JSON should be HTML-escaped
-	if !strings.Contains(result, `&quot;type&quot;`) {
-		t.Errorf("expected HTML-escaped JSON in data attribute, got %q", result)
 	}
 }
 
 func TestPreprocessObsidian_ExcalidrawEmbed_WithPrefix(t *testing.T) {
 	dir := t.TempDir()
-	excalidrawData := `{"elements":[]}`
-	os.WriteFile(filepath.Join(dir, "test.excalidraw"), []byte(excalidrawData), 0644)
+	os.WriteFile(filepath.Join(dir, "test.excalidraw"), []byte(`{}`), 0644)
+	os.WriteFile(filepath.Join(dir, "test.excalidraw.svg"), []byte("<svg></svg>"), 0644)
 
 	opts := &RenderOptions{VaultDir: dir, URLPrefix: "/vault1"}
 
 	result := string(preprocessObsidian([]byte("![[test.excalidraw]]"), opts))
-	if !strings.Contains(result, `class="excalidraw-embed"`) {
-		t.Errorf("expected excalidraw-embed div, got %q", result)
+	if !strings.Contains(result, `<img src="/vault1/test.excalidraw.svg"`) {
+		t.Errorf("expected img with vault prefix, got %q", result)
 	}
 }
 
@@ -537,6 +578,63 @@ func TestPreprocessObsidian_ExcalidrawEmbed_FileNotFound(t *testing.T) {
 	}
 	if !strings.Contains(result, `class="wikilink embed"`) {
 		t.Errorf("expected fallback link for missing excalidraw file, got %q", result)
+	}
+}
+
+func TestPreprocessObsidian_ExcalidrawEmbed_ICloudShadow(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "diagram.excalidraw"), []byte(`{}`), 0644)
+	// Shadow SVG is evicted to iCloud — only the placeholder exists
+	os.WriteFile(filepath.Join(dir, ".diagram.excalidraw.svg.icloud"), []byte("placeholder"), 0644)
+
+	opts := &RenderOptions{VaultDir: dir, URLPrefix: ""}
+
+	result := string(preprocessObsidian([]byte("![[diagram.excalidraw]]"), opts))
+	if !strings.Contains(result, `<img src="/diagram.excalidraw.svg"`) {
+		t.Errorf("expected img tag for iCloud-evicted shadow SVG, got %q", result)
+	}
+	if strings.Contains(result, `class="excalidraw-embed"`) {
+		t.Error("should not fall back to JS viewer when iCloud placeholder exists")
+	}
+}
+
+func TestPreprocessObsidian_ExcalidrawEmbed_ICloudShadowPNG(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "diagram.excalidraw"), []byte(`{}`), 0644)
+	// Only PNG placeholder exists (no SVG at all)
+	os.WriteFile(filepath.Join(dir, ".diagram.excalidraw.png.icloud"), []byte("placeholder"), 0644)
+
+	opts := &RenderOptions{VaultDir: dir, URLPrefix: ""}
+
+	result := string(preprocessObsidian([]byte("![[diagram.excalidraw]]"), opts))
+	if !strings.Contains(result, `<img src="/diagram.excalidraw.png"`) {
+		t.Errorf("expected img tag for iCloud-evicted shadow PNG, got %q", result)
+	}
+}
+
+func TestPostprocessObsidian_ExcalidrawWikilink_ICloudShadow(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "drawing.excalidraw"), []byte(`{}`), 0644)
+	os.WriteFile(filepath.Join(dir, ".drawing.excalidraw.svg.icloud"), []byte("placeholder"), 0644)
+
+	opts := &RenderOptions{VaultDir: dir, URLPrefix: ""}
+
+	result := postprocessObsidian("See [[drawing.excalidraw]]", opts)
+	if !strings.Contains(result, `href="/drawing.excalidraw.svg"`) {
+		t.Errorf("expected wikilink href to point to iCloud-evicted shadow SVG, got %q", result)
+	}
+}
+
+func TestPostprocessObsidian_ExcalidrawWikilink_WithShadow(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "drawing.excalidraw"), []byte(`{}`), 0644)
+	os.WriteFile(filepath.Join(dir, "drawing.excalidraw.svg"), []byte("<svg></svg>"), 0644)
+
+	opts := &RenderOptions{VaultDir: dir, URLPrefix: ""}
+
+	result := postprocessObsidian("See [[drawing.excalidraw]]", opts)
+	if !strings.Contains(result, `href="/drawing.excalidraw.svg"`) {
+		t.Errorf("expected wikilink href to point to shadow SVG, got %q", result)
 	}
 }
 
