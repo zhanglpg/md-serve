@@ -204,9 +204,6 @@ func preprocessObsidian(source []byte, opts *RenderOptions) []byte {
 
 // findExcalidrawShadow looks for a shadow SVG or PNG file exported by Obsidian
 // alongside the .excalidraw file. Returns the relative path from vaultDir if found.
-// Also checks for iCloud placeholder files (.<name>.icloud) so that evicted
-// shadow files are still discovered; the server will handle materialization
-// when the browser actually requests the image.
 //
 // When the direct path check fails, it falls back to a vault-wide search
 // using resolveWikiTarget, matching Obsidian's behavior where wiki links
@@ -218,7 +215,7 @@ func findExcalidrawShadow(vaultDir, filePath string) string {
 	absBase := filepath.Join(vaultDir, filepath.Clean(filePath))
 	for _, ext := range []string{".svg", ".png"} {
 		candidate := absBase + ext
-		if fileExistsOrICloud(candidate) {
+		if fileExists(candidate) {
 			rel, _ := filepath.Rel(vaultDir, candidate)
 			return rel
 		}
@@ -251,17 +248,9 @@ func resolveWikiHref(vaultDir, target string) string {
 	return href
 }
 
-// fileExistsOrICloud returns true if the file exists on disk or has an
-// iCloud placeholder (.<name>.icloud), indicating it is evicted but available.
-func fileExistsOrICloud(fullPath string) bool {
-	if _, err := os.Stat(fullPath); err == nil {
-		return true
-	}
-	// Check for macOS iCloud placeholder: dir/.<basename>.icloud
-	dir := filepath.Dir(fullPath)
-	base := filepath.Base(fullPath)
-	placeholder := filepath.Join(dir, "."+base+".icloud")
-	_, err := os.Stat(placeholder)
+// fileExists returns true if the file exists on disk.
+func fileExists(fullPath string) bool {
+	_, err := os.Stat(fullPath)
 	return err == nil
 }
 
@@ -299,7 +288,7 @@ func ResolveWikiTarget(vaultDir, target string) string {
 
 	// First, try direct path relative to vault root
 	directPath := filepath.Join(vaultDir, filepath.Clean(searchName))
-	if fileExistsOrICloud(directPath) {
+	if fileExists(directPath) {
 		rel, _ := filepath.Rel(vaultDir, directPath)
 		return rel
 	}
@@ -319,17 +308,8 @@ func ResolveWikiTarget(vaultDir, target string) string {
 			return nil
 		}
 		name := strings.ToLower(filepath.Base(path))
-		// Recognize iCloud placeholders: .photo.png.icloud → photo.png
-		realPath := path
-		if strings.HasPrefix(name, ".") && strings.HasSuffix(name, ".icloud") {
-			name = strings.TrimPrefix(name, ".")
-			name = strings.TrimSuffix(name, ".icloud")
-			// Reconstruct the original file path (without iCloud wrapper)
-			realPath = filepath.Join(filepath.Dir(path), strings.TrimPrefix(filepath.Base(path), "."))
-			realPath = strings.TrimSuffix(realPath, ".icloud")
-		}
 		if name == basename || (altBasename != "" && name == altBasename) {
-			rel, err := filepath.Rel(vaultDir, realPath)
+			rel, err := filepath.Rel(vaultDir, path)
 			if err == nil {
 				match = rel
 				return filepath.SkipAll

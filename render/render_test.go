@@ -678,50 +678,6 @@ func TestPreprocessObsidian_ExcalidrawEmbed_FileNotFound(t *testing.T) {
 	}
 }
 
-func TestPreprocessObsidian_ExcalidrawEmbed_ICloudShadow(t *testing.T) {
-	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "diagram.excalidraw"), []byte(`{}`), 0644)
-	// Shadow SVG is evicted to iCloud — only the placeholder exists
-	os.WriteFile(filepath.Join(dir, ".diagram.excalidraw.svg.icloud"), []byte("placeholder"), 0644)
-
-	opts := &RenderOptions{VaultDir: dir, URLPrefix: ""}
-
-	result := string(preprocessObsidian([]byte("![[diagram.excalidraw]]"), opts))
-	if !strings.Contains(result, `<img src="/diagram.excalidraw.svg"`) {
-		t.Errorf("expected img tag for iCloud-evicted shadow SVG, got %q", result)
-	}
-	if strings.Contains(result, `class="excalidraw-embed"`) {
-		t.Error("should not fall back to JS viewer when iCloud placeholder exists")
-	}
-}
-
-func TestPreprocessObsidian_ExcalidrawEmbed_ICloudShadowPNG(t *testing.T) {
-	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "diagram.excalidraw"), []byte(`{}`), 0644)
-	// Only PNG placeholder exists (no SVG at all)
-	os.WriteFile(filepath.Join(dir, ".diagram.excalidraw.png.icloud"), []byte("placeholder"), 0644)
-
-	opts := &RenderOptions{VaultDir: dir, URLPrefix: ""}
-
-	result := string(preprocessObsidian([]byte("![[diagram.excalidraw]]"), opts))
-	if !strings.Contains(result, `<img src="/diagram.excalidraw.png"`) {
-		t.Errorf("expected img tag for iCloud-evicted shadow PNG, got %q", result)
-	}
-}
-
-func TestPreprocessObsidian_ExcalidrawWikilink_ICloudShadow(t *testing.T) {
-	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "drawing.excalidraw"), []byte(`{}`), 0644)
-	os.WriteFile(filepath.Join(dir, ".drawing.excalidraw.svg.icloud"), []byte("placeholder"), 0644)
-
-	opts := &RenderOptions{VaultDir: dir, URLPrefix: ""}
-
-	result := string(preprocessObsidian([]byte("See [[drawing.excalidraw]]"), opts))
-	if !strings.Contains(result, `href="/drawing.excalidraw.svg"`) {
-		t.Errorf("expected wikilink href to point to iCloud-evicted shadow SVG, got %q", result)
-	}
-}
-
 func TestPreprocessObsidian_ExcalidrawWikilink_WithShadow(t *testing.T) {
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "drawing.excalidraw"), []byte(`{}`), 0644)
@@ -804,12 +760,6 @@ func TestResolveWikiTarget(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "Root.md"), []byte("# Root"), 0644)
 	os.WriteFile(filepath.Join(dir, "photo.png"), []byte("png"), 0644)
 
-	// Create iCloud placeholders (evicted files)
-	assetsDir := filepath.Join(dir, "assets")
-	os.MkdirAll(assetsDir, 0755)
-	os.WriteFile(filepath.Join(assetsDir, ".cloud-img.png.icloud"), []byte("placeholder"), 0644)
-	os.WriteFile(filepath.Join(dir, ".evicted.md.icloud"), []byte("placeholder"), 0644)
-
 	tests := []struct {
 		name     string
 		target   string
@@ -821,9 +771,6 @@ func TestResolveWikiTarget(t *testing.T) {
 		{"attachment", "photo.png", "photo.png"},
 		{"not found", "Missing", ""},
 		{"empty vault dir", "", ""},
-		// iCloud placeholder tests
-		{"icloud placeholder by basename", "cloud-img.png", filepath.Join("assets", "cloud-img.png")},
-		{"icloud placeholder direct path", "evicted", "evicted.md"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

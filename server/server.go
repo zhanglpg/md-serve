@@ -97,18 +97,20 @@ func (s *Server) handleVaultRequest(w http.ResponseWriter, r *http.Request, vaul
 
 	info, err := os.Stat(fullPath)
 	if err != nil {
-		// For non-markdown files, check if this is an evicted iCloud file.
-		// macOS replaces evicted files with .<name>.icloud placeholders.
+		// For non-markdown resource requests (e.g. <img> tags), wait for
+		// the file to appear on disk. This handles cloud-synced vaults
+		// (iCloud, Dropbox, etc.) where files may not be immediately
+		// available. Only wait for resource fetches — navigation requests
+		// should fall through to wiki link resolution.
 		ext := strings.ToLower(filepath.Ext(fullPath))
-		if ext != "" && ext != ".md" && ext != ".markdown" && hasICloudPlaceholder(fullPath) {
-			icloudInfo, icloudErr := waitForICloudFile(r.Context(), fullPath, icloudWaitTimeout)
-			if icloudErr == nil {
-				info = icloudInfo
+		if ext != "" && ext != ".md" && ext != ".markdown" && isResourceRequest(r) {
+			waitInfo, waitErr := waitForFile(r.Context(), fullPath, fileWaitTimeout)
+			if waitErr == nil {
+				info = waitInfo
 				err = nil
-			} else {
-				// File is on iCloud but hasn't arrived yet (timeout or client disconnect).
+			} else if waitErr == errFileWaitTimeout {
 				w.Header().Set("Retry-After", "5")
-				http.Error(w, "File is downloading from iCloud, please retry", http.StatusServiceUnavailable)
+				http.Error(w, "File is not yet available, please retry", http.StatusServiceUnavailable)
 				return
 			}
 		}
@@ -121,8 +123,7 @@ func (s *Server) handleVaultRequest(w http.ResponseWriter, r *http.Request, vaul
 			return
 		}
 		// Obsidian-style wiki link resolution — only redirect if the file
-		// resolves to a different location (avoids redirect loops for
-		// iCloud placeholders at the same path).
+		// resolves to a different location.
 		cleanReq := strings.TrimPrefix(filepath.Clean(reqPath), "/")
 		if resolved := render.ResolveWikiTarget(rootDir, filepath.Base(fullPath)); resolved != "" && resolved != cleanReq {
 			http.Redirect(w, r, s.vaultPrefix(vaultName)+"/"+urlEncodePath(resolved), http.StatusFound)
@@ -409,6 +410,14 @@ var imageExts = map[string]bool{
 	".avif": true, ".apng": true, ".tiff": true, ".tif": true,
 }
 
+// isResourceRequest returns true when the request originates from a resource
+// load (e.g., <img> tag, CSS background, fetch API) rather than direct
+// navigation. Used to decide whether to wait for cloud-synced files.
+func isResourceRequest(r *http.Request) bool {
+	dest := r.Header.Get("Sec-Fetch-Dest")
+	return dest == "image" || dest == "style" || dest == "script" || dest == "font" || dest == "audio" || dest == "video"
+}
+
 // isNavigationRequest returns true when the request originates from direct
 // browser navigation (e.g., clicking a link or typing a URL) rather than
 // from an <img> tag or programmatic fetch.
@@ -472,23 +481,13 @@ func (s *Server) serveExcalidrawViewer(w http.ResponseWriter, r *http.Request, v
 
 // serveExcalidrawShadow serves the shadow SVG or PNG file that Obsidian
 // exports alongside an .excalidraw file. It checks for .excalidraw.svg first,
-// then .excalidraw.png, handling iCloud-evicted placeholders. If no shadow
-// exists it falls back to serving the raw excalidraw JSON.
+// then .excalidraw.png. If no shadow exists it falls back to serving the raw
+// excalidraw JSON.
 func (s *Server) serveExcalidrawShadow(w http.ResponseWriter, r *http.Request, excalidrawPath string) {
 	for _, ext := range []string{".svg", ".png"} {
 		candidate := excalidrawPath + ext
 		if _, err := os.Stat(candidate); err == nil {
 			serveFileContent(w, r, candidate)
-			return
-		}
-		if hasICloudPlaceholder(candidate) {
-			info, err := waitForICloudFile(r.Context(), candidate, icloudWaitTimeout)
-			if err == nil && info != nil {
-				serveFileContent(w, r, candidate)
-				return
-			}
-			w.Header().Set("Retry-After", "5")
-			http.Error(w, "Shadow file is downloading from iCloud, please retry", http.StatusServiceUnavailable)
 			return
 		}
 	}
