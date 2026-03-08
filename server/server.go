@@ -143,8 +143,11 @@ func (s *Server) handleVaultRequest(w http.ResponseWriter, r *http.Request, vaul
 		return
 	}
 
-	// Serve other files as-is
-	http.ServeFile(w, r, fullPath)
+	// Serve files directly using http.ServeContent instead of http.ServeFile
+	// to avoid issues with http.ServeFile's path sanitization on r.URL.Path
+	// (containsDotDot checks and redirects) which can cause failed downloads
+	// for vault paths that contain encoded characters or special segments.
+	serveFileContent(w, r, fullPath)
 }
 
 // vaultPrefix returns the URL prefix for a vault. Empty in single-vault mode.
@@ -439,6 +442,25 @@ func (s *Server) serveImageViewer(w http.ResponseWriter, r *http.Request, vaultN
 	if err != nil {
 		log.Printf("Template error: %v", err)
 	}
+}
+
+// serveFileContent serves a file using http.ServeContent, bypassing
+// http.ServeFile's URL path checks that can interfere with vault paths.
+func serveFileContent(w http.ResponseWriter, r *http.Request, filePath string) {
+	f, err := os.Open(filePath)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	defer f.Close()
+
+	info, err := f.Stat()
+	if err != nil {
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	http.ServeContent(w, r, info.Name(), info.ModTime(), f)
 }
 
 func formatSize(size int64) string {
