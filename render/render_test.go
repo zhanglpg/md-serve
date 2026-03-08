@@ -804,6 +804,12 @@ func TestResolveWikiTarget(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "Root.md"), []byte("# Root"), 0644)
 	os.WriteFile(filepath.Join(dir, "photo.png"), []byte("png"), 0644)
 
+	// Create iCloud placeholders (evicted files)
+	assetsDir := filepath.Join(dir, "assets")
+	os.MkdirAll(assetsDir, 0755)
+	os.WriteFile(filepath.Join(assetsDir, ".cloud-img.png.icloud"), []byte("placeholder"), 0644)
+	os.WriteFile(filepath.Join(dir, ".evicted.md.icloud"), []byte("placeholder"), 0644)
+
 	tests := []struct {
 		name     string
 		target   string
@@ -815,6 +821,9 @@ func TestResolveWikiTarget(t *testing.T) {
 		{"attachment", "photo.png", "photo.png"},
 		{"not found", "Missing", ""},
 		{"empty vault dir", "", ""},
+		// iCloud placeholder tests
+		{"icloud placeholder by basename", "cloud-img.png", filepath.Join("assets", "cloud-img.png")},
+		{"icloud placeholder direct path", "evicted", "evicted.md"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
