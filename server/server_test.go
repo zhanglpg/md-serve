@@ -576,6 +576,110 @@ func TestWikiLinkResolution_Attachment(t *testing.T) {
 	}
 }
 
+func TestServeExcalidraw_ViewerPage(t *testing.T) {
+	dir := t.TempDir()
+	excalidrawData := `{"type":"excalidraw","version":2,"elements":[{"type":"rectangle","x":10,"y":10,"width":100,"height":50}],"appState":{"viewBackgroundColor":"#ffffff"}}`
+	os.WriteFile(filepath.Join(dir, "diagram.excalidraw"), []byte(excalidrawData), 0644)
+
+	srv := newSingleVault(dir, "Test")
+
+	// Direct browser navigation should show Excalidraw viewer page
+	req := httptest.NewRequest("GET", "/diagram.excalidraw", nil)
+	req.Header.Set("Sec-Fetch-Dest", "document")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "diagram.excalidraw") {
+		t.Error("expected viewer page to contain filename")
+	}
+	if !strings.Contains(body, "excalidraw-container") {
+		t.Error("expected viewer page to contain excalidraw container")
+	}
+	if !strings.Contains(body, "ExcalidrawLib.Excalidraw") {
+		t.Error("expected viewer page to load Excalidraw library")
+	}
+	ct := w.Header().Get("Content-Type")
+	if !strings.HasPrefix(ct, "text/html") {
+		t.Errorf("expected text/html content type, got %s", ct)
+	}
+}
+
+func TestServeExcalidraw_RawDownload(t *testing.T) {
+	dir := t.TempDir()
+	excalidrawData := `{"type":"excalidraw","version":2,"elements":[]}`
+	os.WriteFile(filepath.Join(dir, "diagram.excalidraw"), []byte(excalidrawData), 0644)
+
+	srv := newSingleVault(dir, "Test")
+
+	// Request with ?raw=1 should serve raw JSON
+	req := httptest.NewRequest("GET", "/diagram.excalidraw?raw=1", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	if body != excalidrawData {
+		t.Errorf("expected raw excalidraw JSON, got %q", body)
+	}
+}
+
+func TestMarkdownWithExcalidrawEmbed(t *testing.T) {
+	dir := t.TempDir()
+	drawDir := filepath.Join(dir, "drawings")
+	os.MkdirAll(drawDir, 0755)
+	excalidrawData := `{"type":"excalidraw","version":2,"elements":[{"type":"rectangle"}]}`
+	os.WriteFile(filepath.Join(drawDir, "diagram.excalidraw"), []byte(excalidrawData), 0644)
+
+	// Create a markdown file that embeds the excalidraw drawing
+	content := "# Notes\n\nHere is a diagram:\n\n![[diagram.excalidraw]]\n"
+	os.WriteFile(filepath.Join(dir, "notes.md"), []byte(content), 0644)
+
+	srv := newSingleVault(dir, "Test")
+
+	req := httptest.NewRequest("GET", "/notes.md", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, `class="excalidraw-embed"`) {
+		t.Errorf("expected inline excalidraw embed in rendered markdown, got body:\n%s", body)
+	}
+	if !strings.Contains(body, "ExcalidrawLib.Excalidraw") {
+		t.Error("expected Excalidraw initialization script in page")
+	}
+}
+
+func TestServeExcalidraw_ProgrammaticFetch(t *testing.T) {
+	dir := t.TempDir()
+	excalidrawData := `{"type":"excalidraw","version":2,"elements":[]}`
+	os.WriteFile(filepath.Join(dir, "diagram.excalidraw"), []byte(excalidrawData), 0644)
+
+	srv := newSingleVault(dir, "Test")
+
+	// Non-navigation request (no Accept: text/html) should serve raw file
+	req := httptest.NewRequest("GET", "/diagram.excalidraw", nil)
+	req.Header.Set("Accept", "application/json")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	if body != excalidrawData {
+		t.Errorf("expected raw excalidraw JSON, got %q", body)
+	}
+}
+
 func TestWikiLinkResolution_Excalidraw(t *testing.T) {
 	dir := t.TempDir()
 	drawDir := filepath.Join(dir, "drawings")

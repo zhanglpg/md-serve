@@ -490,6 +490,56 @@ func TestPreprocessObsidian_EmbedWithVaultResolution(t *testing.T) {
 	}
 }
 
+func TestPreprocessObsidian_ExcalidrawEmbed(t *testing.T) {
+	dir := t.TempDir()
+	drawDir := filepath.Join(dir, "drawings")
+	os.MkdirAll(drawDir, 0755)
+	excalidrawData := `{"type":"excalidraw","version":2,"elements":[{"type":"rectangle"}]}`
+	os.WriteFile(filepath.Join(drawDir, "diagram.excalidraw"), []byte(excalidrawData), 0644)
+
+	opts := &RenderOptions{VaultDir: dir, URLPrefix: ""}
+
+	// Excalidraw embed should produce an inline viewer div
+	result := string(preprocessObsidian([]byte("![[diagram.excalidraw]]"), opts))
+	if !strings.Contains(result, `class="excalidraw-embed"`) {
+		t.Errorf("expected excalidraw-embed div, got %q", result)
+	}
+	if !strings.Contains(result, `data-excalidraw="`) {
+		t.Errorf("expected data-excalidraw attribute, got %q", result)
+	}
+	// The JSON should be HTML-escaped
+	if !strings.Contains(result, `&quot;type&quot;`) {
+		t.Errorf("expected HTML-escaped JSON in data attribute, got %q", result)
+	}
+}
+
+func TestPreprocessObsidian_ExcalidrawEmbed_WithPrefix(t *testing.T) {
+	dir := t.TempDir()
+	excalidrawData := `{"elements":[]}`
+	os.WriteFile(filepath.Join(dir, "test.excalidraw"), []byte(excalidrawData), 0644)
+
+	opts := &RenderOptions{VaultDir: dir, URLPrefix: "/vault1"}
+
+	result := string(preprocessObsidian([]byte("![[test.excalidraw]]"), opts))
+	if !strings.Contains(result, `class="excalidraw-embed"`) {
+		t.Errorf("expected excalidraw-embed div, got %q", result)
+	}
+}
+
+func TestPreprocessObsidian_ExcalidrawEmbed_FileNotFound(t *testing.T) {
+	dir := t.TempDir()
+	opts := &RenderOptions{VaultDir: dir, URLPrefix: ""}
+
+	// When file doesn't exist, should fall back to a link
+	result := string(preprocessObsidian([]byte("![[missing.excalidraw]]"), opts))
+	if strings.Contains(result, `class="excalidraw-embed"`) {
+		t.Error("should not produce excalidraw-embed for missing file")
+	}
+	if !strings.Contains(result, `class="wikilink embed"`) {
+		t.Errorf("expected fallback link for missing excalidraw file, got %q", result)
+	}
+}
+
 func TestResolveWikiTarget(t *testing.T) {
 	dir := t.TempDir()
 	subDir := filepath.Join(dir, "deep", "nested")
