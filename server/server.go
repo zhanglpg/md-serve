@@ -496,7 +496,11 @@ func (s *Server) serveExcalidrawViewer(w http.ResponseWriter, r *http.Request, v
 func serveFileContent(w http.ResponseWriter, r *http.Request, filePath string) {
 	f, err := os.Open(filePath)
 	if err != nil && hasICloudPlaceholder(filePath) {
-		// File may still be materializing from iCloud; brief retry.
+		// Trigger iCloud download by accessing the placeholder.
+		if pf, pfErr := os.Open(icloudPlaceholderPath(filePath)); pfErr == nil {
+			pf.Close()
+		}
+		// Brief retry while file materializes from iCloud.
 		for i := 0; i < 5; i++ {
 			time.Sleep(500 * time.Millisecond)
 			f, err = os.Open(filePath)
