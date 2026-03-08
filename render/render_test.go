@@ -153,7 +153,7 @@ func TestGenerateHeadingID(t *testing.T) {
 
 func TestPreprocessObsidian_Comments(t *testing.T) {
 	input := []byte("Hello %%this is a comment%% World")
-	result := preprocessObsidian(input)
+	result := preprocessObsidian(input, nil)
 	if strings.Contains(string(result), "%%") {
 		t.Error("expected comments to be removed")
 	}
@@ -164,7 +164,7 @@ func TestPreprocessObsidian_Comments(t *testing.T) {
 
 func TestPreprocessObsidian_Highlights(t *testing.T) {
 	input := []byte("This is ==highlighted== text")
-	result := preprocessObsidian(input)
+	result := preprocessObsidian(input, nil)
 	if !strings.Contains(string(result), "<mark>highlighted</mark>") {
 		t.Errorf("expected highlight conversion, got %q", string(result))
 	}
@@ -302,7 +302,7 @@ func TestPostprocessObsidian_AttachmentLinks(t *testing.T) {
 	}
 }
 
-func TestPostprocessObsidian_ImageEmbeds(t *testing.T) {
+func TestPreprocessObsidian_ImageEmbeds(t *testing.T) {
 	tests := []struct {
 		name     string
 		input    string
@@ -348,10 +348,35 @@ func TestPostprocessObsidian_ImageEmbeds(t *testing.T) {
 			"Here is ![[drawing.excalidraw]]",
 			`<a class="wikilink embed" href="/drawing.excalidraw">drawing.excalidraw</a>`,
 		},
+		{
+			"avif embed",
+			"Here is ![[photo.avif]]",
+			`<img src="/photo.avif" alt="photo.avif" />`,
+		},
+		{
+			"webp embed",
+			"Here is ![[photo.webp]]",
+			`<img src="/photo.webp" alt="photo.webp" />`,
+		},
+		{
+			"tiff embed",
+			"Here is ![[photo.tiff]]",
+			`<img src="/photo.tiff" alt="photo.tiff" />`,
+		},
+		{
+			"gif embed",
+			"Here is ![[animation.gif]]",
+			`<img src="/animation.gif" alt="animation.gif" />`,
+		},
+		{
+			"bmp embed",
+			"Here is ![[image.bmp]]",
+			`<img src="/image.bmp" alt="image.bmp" />`,
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			result := postprocessObsidian(tc.input, nil)
+			result := string(preprocessObsidian([]byte(tc.input), nil))
 			if !strings.Contains(result, tc.contains) {
 				t.Errorf("expected result to contain %q, got %q", tc.contains, result)
 			}
@@ -440,6 +465,28 @@ func TestPostprocessObsidian_WithVaultResolution(t *testing.T) {
 	result = postprocessObsidian("[[NonExistent]]", opts)
 	if !strings.Contains(result, `href="/vault1/NonExistent.md"`) {
 		t.Errorf("expected fallback path with prefix, got %q", result)
+	}
+}
+
+func TestPreprocessObsidian_EmbedWithVaultResolution(t *testing.T) {
+	dir := t.TempDir()
+	assetsDir := filepath.Join(dir, "assets")
+	os.MkdirAll(assetsDir, 0755)
+	os.WriteFile(filepath.Join(assetsDir, "photo.png"), []byte("png"), 0644)
+
+	opts := &RenderOptions{VaultDir: dir, URLPrefix: "/vault1"}
+
+	// Embed should resolve the image path
+	result := string(preprocessObsidian([]byte("![[photo.png]]"), opts))
+	if !strings.Contains(result, `<img src="/vault1/assets/photo.png"`) {
+		t.Errorf("expected resolved img src with vault prefix, got %q", result)
+	}
+
+	// Without prefix (single-vault mode)
+	optsNoPrefix := &RenderOptions{VaultDir: dir, URLPrefix: ""}
+	result = string(preprocessObsidian([]byte("![[photo.png]]"), optsNoPrefix))
+	if !strings.Contains(result, `<img src="/assets/photo.png"`) {
+		t.Errorf("expected resolved img src without prefix, got %q", result)
 	}
 }
 

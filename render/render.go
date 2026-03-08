@@ -40,8 +40,9 @@ type RenderOptions struct {
 // Markdown converts markdown source bytes to an HTML Result with TOC.
 // If opts is provided, wiki links are resolved by searching the vault directory.
 func Markdown(source []byte, opts *RenderOptions) (*Result, error) {
-	// Pre-process Obsidian-specific syntax before goldmark parsing
-	processed := preprocessObsidian(source)
+	// Pre-process Obsidian-specific syntax before goldmark parsing.
+	// Embeds are handled here so goldmark does not interfere with ![[...]] syntax.
+	processed := preprocessObsidian(source, opts)
 
 	md := goldmark.New(
 		goldmark.WithExtensions(
@@ -120,11 +121,14 @@ var (
 	imageExts = map[string]bool{
 		".png": true, ".jpg": true, ".jpeg": true, ".gif": true,
 		".svg": true, ".webp": true, ".bmp": true, ".ico": true,
+		".avif": true, ".apng": true, ".tiff": true, ".tif": true,
 	}
 )
 
 // preprocessObsidian handles syntax that must be processed before goldmark.
-func preprocessObsidian(source []byte) []byte {
+// Embeds (![[...]]) are converted here to prevent goldmark from interfering
+// with the bracket syntax.
+func preprocessObsidian(source []byte, opts *RenderOptions) []byte {
 	s := string(source)
 
 	// Remove Obsidian comments %%...%%
@@ -132,6 +136,34 @@ func preprocessObsidian(source []byte) []byte {
 
 	// Convert ==highlight== to <mark> tags (in non-code contexts)
 	s = highlightRe.ReplaceAllString(s, "<mark>$1</mark>")
+
+	// Convert embeds: ![[target]] or ![[target|alt text]]
+	// Must be done before goldmark to avoid parser interference with ![[ syntax.
+	prefix := ""
+	vaultDir := ""
+	if opts != nil {
+		prefix = opts.URLPrefix
+		vaultDir = opts.VaultDir
+	}
+	s = embedRe.ReplaceAllStringFunc(s, func(match string) string {
+		parts := embedRe.FindStringSubmatch(match)
+		target := parts[1]
+		alt := target
+		if parts[2] != "" {
+			alt = parts[2]
+		}
+		resolved := resolveWikiTarget(vaultDir, target)
+		pathForURL := target
+		if resolved != "" {
+			pathForURL = resolved
+		}
+		href := prefix + "/" + urlEncodePath(pathForURL)
+		ext := strings.ToLower(filepath.Ext(target))
+		if imageExts[ext] {
+			return `<img src="` + href + `" alt="` + alt + `" />`
+		}
+		return `<a class="wikilink embed" href="` + href + `">` + alt + `</a>`
+	})
 
 	return []byte(s)
 }
@@ -207,29 +239,6 @@ func postprocessObsidian(html string, opts *RenderOptions) string {
 		prefix = opts.URLPrefix
 		vaultDir = opts.VaultDir
 	}
-
-	// Convert embeds: ![[target]] or ![[target|alt text]]
-	html = embedRe.ReplaceAllStringFunc(html, func(match string) string {
-		parts := embedRe.FindStringSubmatch(match)
-		target := parts[1]
-		alt := target
-		if parts[2] != "" {
-			alt = parts[2]
-		}
-		// Resolve the embed target path in the vault
-		resolved := resolveWikiTarget(vaultDir, target)
-		pathForURL := target
-		if resolved != "" {
-			pathForURL = resolved
-		}
-		href := prefix + "/" + urlEncodePath(pathForURL)
-		ext := strings.ToLower(filepath.Ext(target))
-		if imageExts[ext] {
-			return `<img src="` + href + `" alt="` + alt + `" />`
-		}
-		// Non-image embeds: render as a link
-		return `<a class="wikilink embed" href="` + href + `">` + alt + `</a>`
-	})
 
 	// Convert wiki-links: [[target]] or [[target|display]]
 	html = wikilinkRe.ReplaceAllStringFunc(html, func(match string) string {

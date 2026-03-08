@@ -438,14 +438,15 @@ func TestServeMarkdownFile_WithSpaces(t *testing.T) {
 
 // --- Attachment serving tests ---
 
-func TestServeAttachment_DirectPath(t *testing.T) {
+func TestServeAttachment_DirectPath_Raw(t *testing.T) {
 	dir := t.TempDir()
 	// Create a PNG file
 	os.WriteFile(filepath.Join(dir, "photo.png"), []byte("fake png data"), 0644)
 
 	srv := newSingleVault(dir, "Test")
 
-	req := httptest.NewRequest("GET", "/photo.png", nil)
+	// Request with ?raw=1 should serve raw bytes
+	req := httptest.NewRequest("GET", "/photo.png?raw=1", nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
@@ -458,6 +459,82 @@ func TestServeAttachment_DirectPath(t *testing.T) {
 	}
 }
 
+func TestServeAttachment_DirectPath_ImageRequest(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "photo.png"), []byte("fake png data"), 0644)
+
+	srv := newSingleVault(dir, "Test")
+
+	// Request from <img> tag (Sec-Fetch-Dest: image) should serve raw bytes
+	req := httptest.NewRequest("GET", "/photo.png", nil)
+	req.Header.Set("Sec-Fetch-Dest", "image")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	if body != "fake png data" {
+		t.Errorf("expected raw file content, got %q", body)
+	}
+}
+
+func TestServeAttachment_ViewerPage(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "photo.png"), []byte("fake png data"), 0644)
+
+	srv := newSingleVault(dir, "Test")
+
+	// Direct browser navigation should show viewer page
+	req := httptest.NewRequest("GET", "/photo.png", nil)
+	req.Header.Set("Sec-Fetch-Dest", "document")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "photo.png") {
+		t.Error("expected viewer page to contain filename")
+	}
+	if !strings.Contains(body, `<img src="/photo.png?raw=1"`) {
+		t.Errorf("expected viewer page to contain img tag with raw URL, got body: %s", body)
+	}
+	ct := w.Header().Get("Content-Type")
+	if !strings.HasPrefix(ct, "text/html") {
+		t.Errorf("expected text/html content type, got %s", ct)
+	}
+}
+
+func TestServeAttachment_ViewerPage_AllFormats(t *testing.T) {
+	dir := t.TempDir()
+	formats := []string{".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".bmp", ".ico", ".avif", ".tiff", ".tif"}
+	for _, ext := range formats {
+		os.WriteFile(filepath.Join(dir, "test"+ext), []byte("data"), 0644)
+	}
+
+	srv := newSingleVault(dir, "Test")
+
+	for _, ext := range formats {
+		t.Run(ext, func(t *testing.T) {
+			req := httptest.NewRequest("GET", "/test"+ext, nil)
+			req.Header.Set("Sec-Fetch-Dest", "document")
+			w := httptest.NewRecorder()
+			srv.ServeHTTP(w, req)
+
+			if w.Code != http.StatusOK {
+				t.Errorf("expected 200 for %s, got %d", ext, w.Code)
+			}
+			body := w.Body.String()
+			if !strings.Contains(body, `<img src=`) {
+				t.Errorf("expected viewer page with img tag for %s", ext)
+			}
+		})
+	}
+}
+
 func TestServeAttachment_InSubdir(t *testing.T) {
 	dir := t.TempDir()
 	assetsDir := filepath.Join(dir, "assets")
@@ -466,7 +543,9 @@ func TestServeAttachment_InSubdir(t *testing.T) {
 
 	srv := newSingleVault(dir, "Test")
 
+	// Raw request (from <img> tag)
 	req := httptest.NewRequest("GET", "/assets/photo.png", nil)
+	req.Header.Set("Sec-Fetch-Dest", "image")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 

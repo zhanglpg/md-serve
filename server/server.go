@@ -136,7 +136,14 @@ func (s *Server) handleVaultRequest(w http.ResponseWriter, r *http.Request, vaul
 		return
 	}
 
-	// Serve other files as-is (images, etc.)
+	// For image files, serve a viewer page on direct browser navigation,
+	// or raw bytes for <img> tag requests and programmatic access.
+	if imageExts[ext] && isNavigationRequest(r) {
+		s.serveImageViewer(w, r, vaultName, fullPath, reqPath)
+		return
+	}
+
+	// Serve other files as-is
 	http.ServeFile(w, r, fullPath)
 }
 
@@ -386,6 +393,52 @@ func resolveWikiLink(rootDir, basename string) string {
 		return nil
 	})
 	return match
+}
+
+// imageExts lists file extensions treated as images for viewer page rendering.
+var imageExts = map[string]bool{
+	".png": true, ".jpg": true, ".jpeg": true, ".gif": true,
+	".svg": true, ".webp": true, ".bmp": true, ".ico": true,
+	".avif": true, ".apng": true, ".tiff": true, ".tif": true,
+}
+
+// isNavigationRequest returns true when the request originates from direct
+// browser navigation (e.g., clicking a link or typing a URL) rather than
+// from an <img> tag or programmatic fetch.
+func isNavigationRequest(r *http.Request) bool {
+	// Explicit raw override
+	if r.URL.Query().Get("raw") == "1" {
+		return false
+	}
+	dest := r.Header.Get("Sec-Fetch-Dest")
+	if dest == "image" {
+		return false
+	}
+	if dest == "document" {
+		return true
+	}
+	// Fallback for older browsers: navigation requests include text/html
+	// in Accept while <img> requests do not.
+	accept := r.Header.Get("Accept")
+	return strings.Contains(accept, "text/html")
+}
+
+func (s *Server) serveImageViewer(w http.ResponseWriter, r *http.Request, vaultName, fullPath, reqPath string) {
+	fileName := filepath.Base(fullPath)
+	rawURL := r.URL.Path + "?raw=1"
+
+	breadcrumbs := s.buildBreadcrumbs(vaultName, reqPath)
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	err := imageViewerTmpl.Execute(w, imageViewerData{
+		SiteTitle:   s.siteTitle,
+		FileName:    fileName,
+		ImageURL:    rawURL,
+		Breadcrumbs: breadcrumbs,
+	})
+	if err != nil {
+		log.Printf("Template error: %v", err)
+	}
 }
 
 func formatSize(size int64) string {

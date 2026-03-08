@@ -28,6 +28,13 @@ type searchData struct {
 	Results   []searchResult
 }
 
+type imageViewerData struct {
+	SiteTitle   string
+	FileName    string
+	ImageURL    string
+	Breadcrumbs []Breadcrumb
+}
+
 type landingData struct {
 	SiteTitle string
 	Vaults    []Vault
@@ -516,6 +523,63 @@ var searchTmpl = template.Must(template.New("search").Parse(`<!DOCTYPE html>
     {{else}}
     <p>No results found.</p>
     {{end}}
+  </div>
+</div>
+</body>
+</html>`))
+
+var imageViewerTmpl = template.Must(template.New("imageviewer").Parse(`<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{.FileName}} - {{.SiteTitle}}</title>
+<style>` + baseCSS + `
+.image-viewer {
+  text-align: center;
+  padding: 1rem 0;
+}
+.image-viewer img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.10);
+}
+.image-viewer .image-name {
+  font-size: 1.3em;
+  font-weight: 600;
+  margin-bottom: 0.8rem;
+}
+.image-viewer .image-actions {
+  margin-top: 1rem;
+  font-size: 0.9em;
+}
+.image-viewer .image-actions a {
+  color: var(--link);
+  margin: 0 0.5rem;
+}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <a href="/" class="site-title">{{.SiteTitle}}</a>
+  <form class="search-form" action="/search" method="get">
+    <input type="text" name="q" placeholder="Search files..." autocomplete="off">
+  </form>
+</div>
+<div class="layout">
+  <div class="main-content">
+    <nav class="breadcrumbs">
+      {{range $i, $b := .Breadcrumbs}}{{if $i}}<span class="sep">/</span>{{end}}<a href="{{$b.Path}}">{{$b.Name}}</a>{{end}}
+    </nav>
+    <div class="image-viewer">
+      <div class="image-name">{{.FileName}}</div>
+      <img src="{{.ImageURL}}" alt="{{.FileName}}">
+      <div class="image-actions">
+        <a href="{{.ImageURL}}" download>Download</a>
+        <a href="{{.ImageURL}}" target="_blank">Open raw</a>
+      </div>
+    </div>
   </div>
 </div>
 </body>
