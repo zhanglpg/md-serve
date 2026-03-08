@@ -643,6 +643,67 @@ func TestPostprocessObsidian_ExcalidrawWikilink_WithShadow(t *testing.T) {
 	}
 }
 
+func TestPreprocessObsidian_ExcalidrawEmbed_VaultWideResolution(t *testing.T) {
+	dir := t.TempDir()
+	// Shadow SVG is in a subdirectory, but the embed uses just the basename
+	subDir := filepath.Join(dir, "drawings", "nested")
+	os.MkdirAll(subDir, 0755)
+	os.WriteFile(filepath.Join(subDir, "diagram.excalidraw"), []byte(`{}`), 0644)
+	os.WriteFile(filepath.Join(subDir, "diagram.excalidraw.svg"), []byte("<svg></svg>"), 0644)
+
+	opts := &RenderOptions{VaultDir: dir, URLPrefix: ""}
+
+	// Wiki link without path should resolve to the nested shadow SVG
+	result := string(preprocessObsidian([]byte("![[diagram.excalidraw]]"), opts))
+	if !strings.Contains(result, `diagram.excalidraw.svg"`) {
+		t.Errorf("expected vault-wide resolution to find nested shadow SVG, got %q", result)
+	}
+}
+
+func TestPostprocessObsidian_ExcalidrawWikilink_VaultWideResolution(t *testing.T) {
+	dir := t.TempDir()
+	subDir := filepath.Join(dir, "drawings", "nested")
+	os.MkdirAll(subDir, 0755)
+	os.WriteFile(filepath.Join(subDir, "drawing.excalidraw"), []byte(`{}`), 0644)
+	os.WriteFile(filepath.Join(subDir, "drawing.excalidraw.svg"), []byte("<svg></svg>"), 0644)
+
+	opts := &RenderOptions{VaultDir: dir, URLPrefix: ""}
+
+	result := postprocessObsidian("See [[drawing.excalidraw]]", opts)
+	if !strings.Contains(result, `drawing.excalidraw.svg"`) {
+		t.Errorf("expected vault-wide resolution to find nested shadow SVG, got %q", result)
+	}
+}
+
+func TestFindExcalidrawShadow_VaultWideResolution(t *testing.T) {
+	dir := t.TempDir()
+	subDir := filepath.Join(dir, "deep", "folder")
+	os.MkdirAll(subDir, 0755)
+	// Shadow exists in a subdirectory but we search with just the basename
+	os.WriteFile(filepath.Join(subDir, "chart.excalidraw.svg"), []byte("<svg></svg>"), 0644)
+
+	// Direct path doesn't exist, should fall back to vault-wide search
+	result := findExcalidrawShadow(dir, "chart.excalidraw")
+	expected := filepath.Join("deep", "folder", "chart.excalidraw.svg")
+	if result != expected {
+		t.Errorf("expected vault-wide resolution to find %q, got %q", expected, result)
+	}
+}
+
+func TestFindExcalidrawShadow_VaultWideResolution_PNG(t *testing.T) {
+	dir := t.TempDir()
+	subDir := filepath.Join(dir, "assets")
+	os.MkdirAll(subDir, 0755)
+	// Only PNG shadow exists in a subdirectory
+	os.WriteFile(filepath.Join(subDir, "chart.excalidraw.png"), []byte("png"), 0644)
+
+	result := findExcalidrawShadow(dir, "chart.excalidraw")
+	expected := filepath.Join("assets", "chart.excalidraw.png")
+	if result != expected {
+		t.Errorf("expected vault-wide resolution to find %q, got %q", expected, result)
+	}
+}
+
 func TestResolveWikiTarget(t *testing.T) {
 	dir := t.TempDir()
 	subDir := filepath.Join(dir, "deep", "nested")
@@ -669,9 +730,9 @@ func TestResolveWikiTarget(t *testing.T) {
 			if tc.target == "" || tc.name == "empty vault dir" {
 				vaultDir = ""
 			}
-			got := resolveWikiTarget(vaultDir, tc.target)
+			got := ResolveWikiTarget(vaultDir, tc.target)
 			if got != tc.expected {
-				t.Errorf("resolveWikiTarget(%q) = %q, want %q", tc.target, got, tc.expected)
+				t.Errorf("ResolveWikiTarget(%q) = %q, want %q", tc.target, got, tc.expected)
 			}
 		})
 	}

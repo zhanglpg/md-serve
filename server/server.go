@@ -122,11 +122,11 @@ func (s *Server) handleVaultRequest(w http.ResponseWriter, r *http.Request, vaul
 			return
 		}
 		// Obsidian-style wiki link resolution
-		if resolved := resolveWikiLink(rootDir, filepath.Base(fullPath)); resolved != "" {
+		if resolved := render.ResolveWikiTarget(rootDir, filepath.Base(fullPath)); resolved != "" {
 			http.Redirect(w, r, s.vaultPrefix(vaultName)+"/"+urlEncodePath(resolved), http.StatusFound)
 			return
 		}
-		if resolved := resolveWikiLink(rootDir, filepath.Base(mdPath)); resolved != "" {
+		if resolved := render.ResolveWikiTarget(rootDir, filepath.Base(mdPath)); resolved != "" {
 			http.Redirect(w, r, s.vaultPrefix(vaultName)+"/"+urlEncodePath(resolved), http.StatusFound)
 			return
 		}
@@ -398,34 +398,6 @@ type searchResult struct {
 	Name    string
 	Path    string
 	Snippet string
-}
-
-// resolveWikiLink searches the given root directory for a markdown file
-// matching the given basename (case-insensitive).
-func resolveWikiLink(rootDir, basename string) string {
-	target := strings.ToLower(basename)
-	altTarget := ""
-	if strings.Contains(target, " ") {
-		altTarget = strings.ReplaceAll(target, " ", "-")
-	} else if strings.Contains(target, "-") {
-		altTarget = strings.ReplaceAll(target, "-", " ")
-	}
-	var match string
-	filepath.WalkDir(rootDir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
-			return nil
-		}
-		name := strings.ToLower(filepath.Base(path))
-		if name == target || (altTarget != "" && name == altTarget) {
-			rel, err := filepath.Rel(rootDir, path)
-			if err == nil {
-				match = rel
-				return filepath.SkipAll
-			}
-		}
-		return nil
-	})
-	return match
 }
 
 // imageExts lists file extensions treated as images for viewer page rendering.
