@@ -45,8 +45,11 @@ func waitForICloudFile(ctx context.Context, fullPath string, timeout time.Durati
 
 	log.Printf("icloud: waiting for file to materialize: %s", filepath.Base(fullPath))
 
-	// Attempt to open the original path to trigger the iCloud daemon download.
-	if f, err := os.Open(fullPath); err == nil {
+	// Attempt to open the placeholder to trigger the iCloud daemon download.
+	// On macOS, accessing the .icloud placeholder signals the daemon to
+	// start downloading the original file.
+	placeholderPath := icloudPlaceholderPath(fullPath)
+	if f, err := os.Open(placeholderPath); err == nil {
 		f.Close()
 	}
 
