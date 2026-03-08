@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/zhanglpg/md-serve/server"
 )
@@ -65,7 +66,14 @@ func main() {
 	for _, v := range vaults {
 		log.Printf("  /%s -> %s", v.Name, v.Path)
 	}
-	if err := http.ListenAndServe(addr, srv); err != nil {
+	httpServer := &http.Server{
+		Addr:         addr,
+		Handler:      srv,
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 5 * time.Minute,
+		IdleTimeout:  2 * time.Minute,
+	}
+	if err := httpServer.ListenAndServe(); err != nil {
 		log.Fatalf("Server error: %v", err)
 	}
 }
