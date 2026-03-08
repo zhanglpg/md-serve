@@ -366,8 +366,8 @@ func TestWikiLinkResolution_FileWithSpaces(t *testing.T) {
 		t.Errorf("expected 302 redirect, got %d", w.Code)
 	}
 	loc := w.Header().Get("Location")
-	if loc != "/notes/My Page.md" {
-		t.Errorf("expected redirect to /notes/My Page.md, got %q", loc)
+	if loc != "/notes/My%20Page.md" {
+		t.Errorf("expected redirect to /notes/My%%20Page.md, got %q", loc)
 	}
 }
 
@@ -388,8 +388,8 @@ func TestWikiLinkResolution_FileWithSpecialChars(t *testing.T) {
 		t.Errorf("expected 302 redirect, got %d", w.Code)
 	}
 	loc := w.Header().Get("Location")
-	if loc != "/notes/Page (draft).md" {
-		t.Errorf("expected redirect to /notes/Page (draft).md, got %q", loc)
+	if loc != "/notes/Page%20%28draft%29.md" {
+		t.Errorf("expected redirect to /notes/Page%%20%%28draft%%29.md, got %q", loc)
 	}
 }
 
@@ -411,8 +411,8 @@ func TestWikiLinkResolution_SpaceHyphenInterop(t *testing.T) {
 		t.Errorf("expected 302 redirect, got %d", w.Code)
 	}
 	loc := w.Header().Get("Location")
-	if loc != "/notes/My Page.md" {
-		t.Errorf("expected redirect to /notes/My Page.md, got %q", loc)
+	if loc != "/notes/My%20Page.md" {
+		t.Errorf("expected redirect to /notes/My%%20Page.md, got %q", loc)
 	}
 }
 
