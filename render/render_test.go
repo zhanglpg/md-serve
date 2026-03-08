@@ -1,13 +1,15 @@
 package render
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
 
 func TestMarkdown_BasicRendering(t *testing.T) {
 	input := []byte("# Hello World\n\nThis is a paragraph.")
-	result, err := Markdown(input)
+	result, err := Markdown(input, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -24,7 +26,7 @@ func TestMarkdown_BasicRendering(t *testing.T) {
 
 func TestMarkdown_CodeBlock(t *testing.T) {
 	input := []byte("```go\nfmt.Println(\"hello\")\n```")
-	result, err := Markdown(input)
+	result, err := Markdown(input, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -35,7 +37,7 @@ func TestMarkdown_CodeBlock(t *testing.T) {
 
 func TestMarkdown_GFMTable(t *testing.T) {
 	input := []byte("| A | B |\n|---|---|\n| 1 | 2 |")
-	result, err := Markdown(input)
+	result, err := Markdown(input, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -46,7 +48,7 @@ func TestMarkdown_GFMTable(t *testing.T) {
 
 func TestMarkdown_Links(t *testing.T) {
 	input := []byte("[Click here](https://example.com)")
-	result, err := Markdown(input)
+	result, err := Markdown(input, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -214,7 +216,7 @@ func TestPostprocessObsidian_Wikilinks(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			result := postprocessObsidian(tc.input)
+			result := postprocessObsidian(tc.input, nil)
 			if !strings.Contains(result, tc.contains) {
 				t.Errorf("expected result to contain %q, got %q", tc.contains, result)
 			}
@@ -280,7 +282,7 @@ func TestPostprocessObsidian_AttachmentLinks(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			result := postprocessObsidian(tc.input)
+			result := postprocessObsidian(tc.input, nil)
 			if !strings.Contains(result, tc.contains) {
 				t.Errorf("expected result to contain %q, got %q", tc.contains, result)
 			}
@@ -349,7 +351,7 @@ func TestPostprocessObsidian_ImageEmbeds(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			result := postprocessObsidian(tc.input)
+			result := postprocessObsidian(tc.input, nil)
 			if !strings.Contains(result, tc.contains) {
 				t.Errorf("expected result to contain %q, got %q", tc.contains, result)
 			}
@@ -359,7 +361,7 @@ func TestPostprocessObsidian_ImageEmbeds(t *testing.T) {
 
 func TestPostprocessObsidian_Callouts(t *testing.T) {
 	input := "<blockquote>\n<p>[!warning] Be careful"
-	result := postprocessObsidian(input)
+	result := postprocessObsidian(input, nil)
 	if !strings.Contains(result, `callout-warning`) {
 		t.Error("expected callout-warning class")
 	}
@@ -370,7 +372,7 @@ func TestPostprocessObsidian_Callouts(t *testing.T) {
 
 func TestPostprocessObsidian_CalloutDefaultTitle(t *testing.T) {
 	input := "<blockquote>\n<p>[!info] "
-	result := postprocessObsidian(input)
+	result := postprocessObsidian(input, nil)
 	if !strings.Contains(result, `callout-info`) {
 		t.Error("expected callout-info class")
 	}
@@ -388,7 +390,7 @@ Check [[Other Page]] for more info.
 > [!tip] Pro Tip
 > This is a helpful tip.
 `)
-	result, err := Markdown(input)
+	result, err := Markdown(input, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -403,5 +405,74 @@ Check [[Other Page]] for more info.
 	}
 	if len(result.TOC) != 1 {
 		t.Errorf("expected 1 TOC entry, got %d", len(result.TOC))
+	}
+}
+
+func TestPostprocessObsidian_WithVaultResolution(t *testing.T) {
+	dir := t.TempDir()
+	subDir := filepath.Join(dir, "sub")
+	os.MkdirAll(subDir, 0755)
+	os.WriteFile(filepath.Join(subDir, "Target.md"), []byte("# Target"), 0644)
+	os.WriteFile(filepath.Join(dir, "Root.md"), []byte("# Root"), 0644)
+
+	opts := &RenderOptions{VaultDir: dir, URLPrefix: "/vault1"}
+
+	// Wiki link to file in subdirectory
+	result := postprocessObsidian("[[Target]]", opts)
+	if !strings.Contains(result, `href="/vault1/sub/Target.md"`) {
+		t.Errorf("expected resolved path with vault prefix, got %q", result)
+	}
+
+	// Wiki link to file at root
+	result = postprocessObsidian("[[Root]]", opts)
+	if !strings.Contains(result, `href="/vault1/Root.md"`) {
+		t.Errorf("expected resolved path at root with vault prefix, got %q", result)
+	}
+
+	// Wiki link with no prefix (single-vault mode)
+	optsNoPrefix := &RenderOptions{VaultDir: dir, URLPrefix: ""}
+	result = postprocessObsidian("[[Target]]", optsNoPrefix)
+	if !strings.Contains(result, `href="/sub/Target.md"`) {
+		t.Errorf("expected resolved path without prefix, got %q", result)
+	}
+
+	// Wiki link to non-existent file falls back to original behavior
+	result = postprocessObsidian("[[NonExistent]]", opts)
+	if !strings.Contains(result, `href="/vault1/NonExistent.md"`) {
+		t.Errorf("expected fallback path with prefix, got %q", result)
+	}
+}
+
+func TestResolveWikiTarget(t *testing.T) {
+	dir := t.TempDir()
+	subDir := filepath.Join(dir, "deep", "nested")
+	os.MkdirAll(subDir, 0755)
+	os.WriteFile(filepath.Join(subDir, "Page.md"), []byte("# Page"), 0644)
+	os.WriteFile(filepath.Join(dir, "Root.md"), []byte("# Root"), 0644)
+	os.WriteFile(filepath.Join(dir, "photo.png"), []byte("png"), 0644)
+
+	tests := []struct {
+		name     string
+		target   string
+		expected string
+	}{
+		{"root file", "Root", "Root.md"},
+		{"nested file", "Page", filepath.Join("deep", "nested", "Page.md")},
+		{"direct path", "deep/nested/Page", filepath.Join("deep", "nested", "Page.md")},
+		{"attachment", "photo.png", "photo.png"},
+		{"not found", "Missing", ""},
+		{"empty vault dir", "", ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			vaultDir := dir
+			if tc.target == "" || tc.name == "empty vault dir" {
+				vaultDir = ""
+			}
+			got := resolveWikiTarget(vaultDir, tc.target)
+			if got != tc.expected {
+				t.Errorf("resolveWikiTarget(%q) = %q, want %q", tc.target, got, tc.expected)
+			}
+		})
 	}
 }
