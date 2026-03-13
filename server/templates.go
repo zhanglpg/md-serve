@@ -71,8 +71,7 @@ const baseCSS = `
   --toc-width: 240px;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
+[data-theme="dark"] {
     --bg: #1a1b26;
     --bg-secondary: #24283b;
     --bg-tertiary: #343a52;
@@ -91,7 +90,6 @@ const baseCSS = `
     --callout-note: #1e2456;
     --callout-example: #2e1541;
     --mark-bg: #854d0e;
-  }
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -395,7 +393,41 @@ a:hover { color: var(--link-hover); text-decoration: underline; }
   font-size: 1.2rem;
   font-weight: 600;
 }
+
+/* Theme toggle */
+.theme-toggle {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.35rem;
+  cursor: pointer;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+.theme-toggle:hover { background: var(--bg-tertiary); }
+.theme-toggle svg { width: 18px; height: 18px; }
+[data-theme="light"] .theme-toggle .icon-sun { display: none; }
+[data-theme="light"] .theme-toggle .icon-moon { display: inline; }
+[data-theme="dark"] .theme-toggle .icon-sun { display: inline; }
+[data-theme="dark"] .theme-toggle .icon-moon { display: none; }
 `
+
+const themeInitScript = `<script>
+(function(){var t=localStorage.getItem('theme');if(!t)t=window.matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)})();
+</script>`
+
+const themeToggleBtn = `<button class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle dark mode">
+  <svg class="icon-sun" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+  <svg class="icon-moon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+</button>`
+
+const themeToggleScript = `<script>
+function toggleTheme(){var h=document.documentElement;var t=h.getAttribute('data-theme')==='dark'?'light':'dark';h.setAttribute('data-theme',t);localStorage.setItem('theme',t)}
+</script>`
 
 var pageTmpl = template.Must(template.New("page").Parse(`<!DOCTYPE html>
 <html lang="en">
@@ -404,6 +436,7 @@ var pageTmpl = template.Must(template.New("page").Parse(`<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>{{.PageTitle}} - {{.SiteTitle}}</title>
 <style>` + baseCSS + `</style>
+` + themeInitScript + `
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
 </head>
 <body>
@@ -412,6 +445,7 @@ var pageTmpl = template.Must(template.New("page").Parse(`<!DOCTYPE html>
   <form class="search-form" action="/search" method="get">
     <input type="text" name="q" placeholder="Search files..." autocomplete="off">
   </form>
+  ` + themeToggleBtn + `
 </div>
 <div class="layout">
   <div class="main-content">
@@ -458,10 +492,11 @@ document.addEventListener("DOMContentLoaded", function() {
     pre.parentNode.replaceChild(div, pre);
   });
   if (document.querySelector('.mermaid')) {
-    mermaid.initialize({ startOnLoad: true, theme: window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default' });
+    mermaid.initialize({ startOnLoad: true, theme: document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'default' });
   }
 });
 </script>
+` + themeToggleScript + `
 </body>
 </html>`))
 
@@ -472,6 +507,7 @@ var dirTmpl = template.Must(template.New("dir").Parse(`<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>{{.DirName}} - {{.SiteTitle}}</title>
 <style>` + baseCSS + `</style>
+` + themeInitScript + `
 </head>
 <body>
 <div class="topbar">
@@ -479,6 +515,7 @@ var dirTmpl = template.Must(template.New("dir").Parse(`<!DOCTYPE html>
   <form class="search-form" action="/search" method="get">
     <input type="text" name="q" placeholder="Search files..." autocomplete="off">
   </form>
+  ` + themeToggleBtn + `
 </div>
 <div class="layout">
   <div class="main-content">
@@ -496,6 +533,7 @@ var dirTmpl = template.Must(template.New("dir").Parse(`<!DOCTYPE html>
     </ul>
   </div>
 </div>
+` + themeToggleScript + `
 </body>
 </html>`))
 
@@ -506,6 +544,7 @@ var searchTmpl = template.Must(template.New("search").Parse(`<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Search: {{.Query}} - {{.SiteTitle}}</title>
 <style>` + baseCSS + `</style>
+` + themeInitScript + `
 </head>
 <body>
 <div class="topbar">
@@ -513,6 +552,7 @@ var searchTmpl = template.Must(template.New("search").Parse(`<!DOCTYPE html>
   <form class="search-form" action="/search" method="get">
     <input type="text" name="q" value="{{.Query}}" placeholder="Search files..." autocomplete="off">
   </form>
+  ` + themeToggleBtn + `
 </div>
 <div class="layout">
   <div class="main-content">
@@ -532,6 +572,7 @@ var searchTmpl = template.Must(template.New("search").Parse(`<!DOCTYPE html>
     {{end}}
   </div>
 </div>
+` + themeToggleScript + `
 </body>
 </html>`))
 
@@ -542,6 +583,9 @@ var imageViewerTmpl = template.Must(template.New("imageviewer").Parse(`<!DOCTYPE
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>{{.FileName}} - {{.SiteTitle}}</title>
 <style>` + baseCSS + `
+</style>
+` + themeInitScript + `
+<style>
 .image-viewer {
   text-align: center;
   padding: 1rem 0;
@@ -573,6 +617,7 @@ var imageViewerTmpl = template.Must(template.New("imageviewer").Parse(`<!DOCTYPE
   <form class="search-form" action="/search" method="get">
     <input type="text" name="q" placeholder="Search files..." autocomplete="off">
   </form>
+  ` + themeToggleBtn + `
 </div>
 <div class="layout">
   <div class="main-content">
@@ -589,6 +634,7 @@ var imageViewerTmpl = template.Must(template.New("imageviewer").Parse(`<!DOCTYPE
     </div>
   </div>
 </div>
+` + themeToggleScript + `
 </body>
 </html>`))
 
@@ -599,6 +645,9 @@ var excalidrawViewerTmpl = template.Must(template.New("excalidrawviewer").Parse(
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>{{.FileName}} - {{.SiteTitle}}</title>
 <style>` + baseCSS + `
+</style>
+` + themeInitScript + `
+<style>
 .excalidraw-viewer {
   padding: 1rem 0;
 }
@@ -630,6 +679,7 @@ var excalidrawViewerTmpl = template.Must(template.New("excalidrawviewer").Parse(
   <form class="search-form" action="/search" method="get">
     <input type="text" name="q" placeholder="Search files..." autocomplete="off">
   </form>
+  ` + themeToggleBtn + `
 </div>
 <div class="layout">
   <div class="main-content">
@@ -652,7 +702,7 @@ var excalidrawViewerTmpl = template.Must(template.New("excalidrawviewer").Parse(
   var data = {{.ExcalidrawJSON}};
   var container = document.getElementById("excalidraw-container");
   container.innerHTML = "";
-  var isDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+  var isDark = document.documentElement.getAttribute("data-theme") === "dark";
   var root = ReactDOM.createRoot(container);
   root.render(
     React.createElement(ExcalidrawLib.Excalidraw, {
@@ -672,6 +722,7 @@ var excalidrawViewerTmpl = template.Must(template.New("excalidrawviewer").Parse(
   );
 })();
 </script>
+` + themeToggleScript + `
 </body>
 </html>`))
 
@@ -682,6 +733,7 @@ var landingTmpl = template.Must(template.New("landing").Parse(`<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>{{.SiteTitle}}</title>
 <style>` + baseCSS + `</style>
+` + themeInitScript + `
 </head>
 <body>
 <div class="topbar">
@@ -689,6 +741,7 @@ var landingTmpl = template.Must(template.New("landing").Parse(`<!DOCTYPE html>
   <form class="search-form" action="/search" method="get">
     <input type="text" name="q" placeholder="Search all vaults..." autocomplete="off">
   </form>
+  ` + themeToggleBtn + `
 </div>
 <div class="layout">
   <div class="main-content">
@@ -703,5 +756,6 @@ var landingTmpl = template.Must(template.New("landing").Parse(`<!DOCTYPE html>
     </div>
   </div>
 </div>
+` + themeToggleScript + `
 </body>
 </html>`))
