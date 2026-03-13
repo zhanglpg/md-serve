@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/zhanglpg/md-serve/render"
 )
@@ -228,10 +229,12 @@ func (s *Server) serveMarkdown(w http.ResponseWriter, r *http.Request, vaultName
 
 // DirEntry holds info about a file or directory for listing.
 type DirEntry struct {
-	Name  string
-	Path  string
-	IsDir bool
-	Size  string
+	Name    string
+	Path    string
+	IsDir   bool
+	Size    string
+	ModTime int64  // Unix timestamp for sorting
+	ModFmt  string // Human-readable modification time
 }
 
 func (s *Server) serveDirectory(w http.ResponseWriter, r *http.Request, vaultName, rootDir, dirPath, reqPath string) {
@@ -252,10 +255,12 @@ func (s *Server) serveDirectory(w http.ResponseWriter, r *http.Request, vaultNam
 		}
 		entryPath := filepath.Join(s.vaultPrefix(vaultName), reqPath, e.Name())
 		entry := DirEntry{
-			Name:  e.Name(),
-			Path:  entryPath,
-			IsDir: e.IsDir(),
-			Size:  formatSize(info.Size()),
+			Name:    e.Name(),
+			Path:    entryPath,
+			IsDir:   e.IsDir(),
+			Size:    formatSize(info.Size()),
+			ModTime: info.ModTime().Unix(),
+			ModFmt:  info.ModTime().Format(time.DateTime),
 		}
 		if e.IsDir() {
 			dirs = append(dirs, entry)
@@ -264,8 +269,19 @@ func (s *Server) serveDirectory(w http.ResponseWriter, r *http.Request, vaultNam
 		}
 	}
 
-	sort.Slice(dirs, func(i, j int) bool { return dirs[i].Name < dirs[j].Name })
-	sort.Slice(files, func(i, j int) bool { return files[i].Name < files[j].Name })
+	// Determine sort order from query parameter; default to "name".
+	sortBy := r.URL.Query().Get("sort")
+	if sortBy != "date" {
+		sortBy = "name"
+	}
+
+	if sortBy == "date" {
+		sort.Slice(dirs, func(i, j int) bool { return dirs[i].ModTime > dirs[j].ModTime })
+		sort.Slice(files, func(i, j int) bool { return files[i].ModTime > files[j].ModTime })
+	} else {
+		sort.Slice(dirs, func(i, j int) bool { return dirs[i].Name < dirs[j].Name })
+		sort.Slice(files, func(i, j int) bool { return files[i].Name < files[j].Name })
+	}
 
 	dirName := filepath.Base(reqPath)
 	if reqPath == "/" || reqPath == "." {
@@ -281,6 +297,7 @@ func (s *Server) serveDirectory(w http.ResponseWriter, r *http.Request, vaultNam
 		Dirs:        dirs,
 		Files:       files,
 		Breadcrumbs: breadcrumbs,
+		SortBy:      sortBy,
 	})
 	if err != nil {
 		log.Printf("Template error: %v", err)

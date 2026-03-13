@@ -20,6 +20,7 @@ type dirData struct {
 	Dirs        []DirEntry
 	Files       []DirEntry
 	Breadcrumbs []Breadcrumb
+	SortBy      string // "name" or "date"
 }
 
 type searchData struct {
@@ -348,7 +349,12 @@ a:hover { color: var(--link-hover); text-decoration: underline; }
 .dir-list .icon { font-size: 1.2rem; width: 1.5rem; text-align: center; }
 .dir-list .name { flex: 1; }
 .dir-list .size { color: var(--text-secondary); font-size: 0.85rem; }
+.dir-list .date { color: var(--text-secondary); font-size: 0.85rem; white-space: nowrap; }
 .dir-list .dir-name { font-weight: 600; }
+.sort-controls { display: flex; align-items: center; gap: 0.5rem; margin: 0.8rem 0; font-size: 0.85rem; color: var(--text-secondary); }
+.sort-controls a { color: var(--text-secondary); padding: 0.2rem 0.6rem; border-radius: 4px; transition: background 0.15s, color 0.15s; }
+.sort-controls a:hover { background: var(--bg-tertiary); color: var(--text); text-decoration: none; }
+.sort-controls a.active { background: var(--accent-light); color: var(--accent); font-weight: 600; }
 
 /* Search */
 .search-results { list-style: none; padding: 0; }
@@ -523,12 +529,17 @@ var dirTmpl = template.Must(template.New("dir").Parse(`<!DOCTYPE html>
       {{range $i, $b := .Breadcrumbs}}{{if $i}}<span class="sep">/</span>{{end}}<a href="{{$b.Path}}">{{$b.Name}}</a>{{end}}
     </nav>
     <h1>{{.DirName}}</h1>
+    <div class="sort-controls">
+      <span>Sort by:</span>
+      <a href="?sort=name"{{if eq .SortBy "name"}} class="active"{{end}}>Name</a>
+      <a href="?sort=date"{{if eq .SortBy "date"}} class="active"{{end}}>Date modified</a>
+    </div>
     <ul class="dir-list">
       {{range .Dirs}}
-      <li><a href="{{.Path}}"><span class="icon">&#x1F4C1;</span><span class="name dir-name">{{.Name}}</span></a></li>
+      <li><a href="{{.Path}}"><span class="icon">&#x1F4C1;</span><span class="name dir-name">{{.Name}}</span><span class="date">{{.ModFmt}}</span></a></li>
       {{end}}
       {{range .Files}}
-      <li><a href="{{.Path}}"><span class="icon">&#x1F4C4;</span><span class="name">{{.Name}}</span><span class="size">{{.Size}}</span></a></li>
+      <li><a href="{{.Path}}"><span class="icon">&#x1F4C4;</span><span class="name">{{.Name}}</span><span class="date">{{.ModFmt}}</span><span class="size">{{.Size}}</span></a></li>
       {{end}}
     </ul>
   </div>
