@@ -6,7 +6,7 @@ A lightweight HTTP server that renders Markdown files as a styled website. Suppo
 
 - Serves `.md` and `.markdown` files as styled HTML pages
 - **Multi-vault support** — serve multiple directories as named vaults with a landing page
-- Obsidian syntax support: `[[wikilinks]]`, `==highlights==`, `%%comments%%`, callouts
+- Obsidian syntax support: `[[wikilinks]]`, `==highlights==`, `%%comments%%`, callouts, `![[embeds]]`
 - Wiki links resolve case-insensitively with space/hyphen interoperability (`[[My Page]]` finds `my-page.md`)
 - Callout types: note, tip, info, warning, danger, example, success, failure, bug, abstract, question, quote
 - Table of Contents sidebar generated from headings
@@ -16,6 +16,9 @@ A lightweight HTTP server that renders Markdown files as a styled website. Suppo
 - Syntax highlighting for code blocks (Dracula theme)
 - GitHub Flavored Markdown tables and footnotes
 - KaTeX math and Mermaid diagram rendering
+- **Image viewer** — navigating to an image file shows a styled viewer page with breadcrumbs
+- **Excalidraw support** — `.excalidraw` files render in a viewer page; `![[drawing.excalidraw]]` embeds resolve to shadow SVG/PNG exports
+- **Cloud-sync awareness** — automatically waits for files still syncing from cloud providers (iCloud, Dropbox, etc.) before returning a 503
 - Static file serving (images, PDFs, etc.) with proper MIME types
 - Dark mode support (auto-detects system preference)
 - Responsive design
@@ -34,6 +37,9 @@ go build -o md-serve .
 
 # Serve a specific directory with custom port and title
 ./md-serve -dir /path/to/docs -port 3000 -title "My Wiki"
+
+# Positional arguments also work as directory paths
+./md-serve /path/to/docs
 
 # Serve multiple vaults (each gets its own URL namespace and landing-page card)
 ./md-serve -dir notes=/path/to/notes -dir wiki=/path/to/wiki
