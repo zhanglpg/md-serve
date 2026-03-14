@@ -21,6 +21,7 @@ type dirData struct {
 	Files       []DirEntry
 	Breadcrumbs []Breadcrumb
 	SortBy      string // "name" or "date"
+	ReadmeHTML  template.HTML
 }
 
 type searchData struct {
@@ -542,6 +543,12 @@ var dirTmpl = template.Must(template.New("dir").Parse(`<!DOCTYPE html>
       <li><a href="{{.Path}}"><span class="icon">&#x1F4C4;</span><span class="name">{{.Name}}</span><span class="date">{{.ModFmt}}</span><span class="size">{{.Size}}</span></a></li>
       {{end}}
     </ul>
+    {{if .ReadmeHTML}}
+    <hr>
+    <div class="md-content">
+      {{.ReadmeHTML}}
+    </div>
+    {{end}}
   </div>
 </div>
 ` + themeToggleScript + `

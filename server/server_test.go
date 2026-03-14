@@ -35,6 +35,10 @@ func setupTestDir(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
+	err = os.WriteFile(filepath.Join(subDir, "guide.md"), []byte("# Guide"), 0644)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	// Create a plain text file
 	err = os.WriteFile(filepath.Join(dir, "data.txt"), []byte("plain text"), 0644)
@@ -118,8 +122,14 @@ func TestServeDirectoryWithIndex(t *testing.T) {
 		t.Errorf("expected 200, got %d", w.Code)
 	}
 	body := w.Body.String()
-	if !strings.Contains(body, "Home") {
-		t.Error("expected index.md content for root directory")
+	if !strings.Contains(body, "Welcome") {
+		t.Error("expected index.md content rendered after file list")
+	}
+	if !strings.Contains(body, "hello.md") {
+		t.Error("expected file listing to be shown alongside index.md content")
+	}
+	if strings.Contains(body, "index.md") {
+		t.Error("expected index.md to be excluded from file listing")
 	}
 }
 
@@ -135,8 +145,14 @@ func TestServeDirectoryWithReadme(t *testing.T) {
 		t.Errorf("expected 200, got %d", w.Code)
 	}
 	body := w.Body.String()
-	if !strings.Contains(body, "Docs") {
-		t.Error("expected README.md content for docs directory")
+	if !strings.Contains(body, "Documentation") {
+		t.Error("expected README.md content rendered after file list")
+	}
+	if !strings.Contains(body, "guide.md") {
+		t.Error("expected file listing to be shown alongside README.md content")
+	}
+	if strings.Contains(body, "README.md") {
+		t.Error("expected README.md to be excluded from file listing")
 	}
 }
 
@@ -164,9 +180,6 @@ func TestServeDirectoryListing(t *testing.T) {
 
 func TestServeDirectoryHidesHiddenFiles(t *testing.T) {
 	dir := setupTestDir(t)
-	// Remove index.md so we get a directory listing
-	os.Remove(filepath.Join(dir, "index.md"))
-
 	srv := newSingleVault(dir, "Test")
 
 	req := httptest.NewRequest("GET", "/", nil)

@@ -139,16 +139,6 @@ func (s *Server) handleVaultRequest(w http.ResponseWriter, r *http.Request, vaul
 	}
 
 	if info.IsDir() {
-		indexPath := filepath.Join(fullPath, "index.md")
-		if _, err := os.Stat(indexPath); err == nil {
-			s.serveMarkdown(w, r, vaultName, rootDir, indexPath, filepath.Join(reqPath, "index.md"))
-			return
-		}
-		readmePath := filepath.Join(fullPath, "README.md")
-		if _, err := os.Stat(readmePath); err == nil {
-			s.serveMarkdown(w, r, vaultName, rootDir, readmePath, filepath.Join(reqPath, "README.md"))
-			return
-		}
 		s.serveDirectory(w, r, vaultName, rootDir, fullPath, reqPath)
 		return
 	}
@@ -244,9 +234,30 @@ func (s *Server) serveDirectory(w http.ResponseWriter, r *http.Request, vaultNam
 		return
 	}
 
+	// Detect index.md or README.md to render after the file list.
+	var readmeHTML template.HTML
+	var skipFile string
+	for _, name := range []string{"index.md", "README.md"} {
+		mdPath := filepath.Join(dirPath, name)
+		if data, err := os.ReadFile(mdPath); err == nil {
+			result, err := render.Markdown(data, &render.RenderOptions{
+				VaultDir:  rootDir,
+				URLPrefix: s.vaultPrefix(vaultName),
+			})
+			if err == nil {
+				readmeHTML = template.HTML(result.HTML)
+				skipFile = name
+			}
+			break
+		}
+	}
+
 	var dirs, files []DirEntry
 	for _, e := range entries {
 		if strings.HasPrefix(e.Name(), ".") {
+			continue
+		}
+		if e.Name() == skipFile {
 			continue
 		}
 		info, err := e.Info()
@@ -298,6 +309,7 @@ func (s *Server) serveDirectory(w http.ResponseWriter, r *http.Request, vaultNam
 		Files:       files,
 		Breadcrumbs: breadcrumbs,
 		SortBy:      sortBy,
+		ReadmeHTML:  readmeHTML,
 	})
 	if err != nil {
 		log.Printf("Template error: %v", err)
