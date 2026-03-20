@@ -3,6 +3,7 @@ package main
 import "testing"
 
 func TestParseDir(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		input    string
 		wantName string

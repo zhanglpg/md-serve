@@ -8,6 +8,7 @@ import (
 )
 
 func TestMarkdown_BasicRendering(t *testing.T) {
+	t.Parallel()
 	input := []byte("# Hello World\n\nThis is a paragraph.")
 	result, err := Markdown(input, nil)
 	if err != nil {
@@ -25,6 +26,7 @@ func TestMarkdown_BasicRendering(t *testing.T) {
 }
 
 func TestMarkdown_CodeBlock(t *testing.T) {
+	t.Parallel()
 	input := []byte("```go\nfmt.Println(\"hello\")\n```")
 	result, err := Markdown(input, nil)
 	if err != nil {
@@ -36,6 +38,7 @@ func TestMarkdown_CodeBlock(t *testing.T) {
 }
 
 func TestMarkdown_GFMTable(t *testing.T) {
+	t.Parallel()
 	input := []byte("| A | B |\n|---|---|\n| 1 | 2 |")
 	result, err := Markdown(input, nil)
 	if err != nil {
@@ -47,6 +50,7 @@ func TestMarkdown_GFMTable(t *testing.T) {
 }
 
 func TestMarkdown_Links(t *testing.T) {
+	t.Parallel()
 	input := []byte("[Click here](https://example.com)")
 	result, err := Markdown(input, nil)
 	if err != nil {
@@ -63,6 +67,7 @@ func TestMarkdown_Links(t *testing.T) {
 // --- TOC extraction tests ---
 
 func TestExtractTOC_SingleHeading(t *testing.T) {
+	t.Parallel()
 	source := []byte("# Introduction")
 	toc := extractTOC(source)
 	if len(toc) != 1 {
@@ -80,6 +85,7 @@ func TestExtractTOC_SingleHeading(t *testing.T) {
 }
 
 func TestExtractTOC_MultipleHeadings(t *testing.T) {
+	t.Parallel()
 	source := []byte("# Title\n## Section One\n### Subsection\n## Section Two")
 	toc := extractTOC(source)
 	if len(toc) != 4 {
@@ -105,6 +111,7 @@ func TestExtractTOC_MultipleHeadings(t *testing.T) {
 }
 
 func TestExtractTOC_StripsInlineMarkdown(t *testing.T) {
+	t.Parallel()
 	source := []byte("## A **bold** heading\n## A [link](http://x.com) heading")
 	toc := extractTOC(source)
 	if len(toc) != 2 {
@@ -119,6 +126,7 @@ func TestExtractTOC_StripsInlineMarkdown(t *testing.T) {
 }
 
 func TestExtractTOC_NoHeadings(t *testing.T) {
+	t.Parallel()
 	source := []byte("Just a paragraph with no headings.")
 	toc := extractTOC(source)
 	if len(toc) != 0 {
@@ -129,6 +137,7 @@ func TestExtractTOC_NoHeadings(t *testing.T) {
 // --- Heading ID generation tests ---
 
 func TestGenerateHeadingID(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		input    string
 		expected string
@@ -152,6 +161,7 @@ func TestGenerateHeadingID(t *testing.T) {
 // --- Obsidian preprocessing tests ---
 
 func TestPreprocessObsidian_Comments(t *testing.T) {
+	t.Parallel()
 	input := []byte("Hello %%this is a comment%% World")
 	result := preprocessObsidian(input, nil)
 	if strings.Contains(string(result), "%%") {
@@ -163,6 +173,7 @@ func TestPreprocessObsidian_Comments(t *testing.T) {
 }
 
 func TestPreprocessObsidian_Highlights(t *testing.T) {
+	t.Parallel()
 	input := []byte("This is ==highlighted== text")
 	result := preprocessObsidian(input, nil)
 	if !strings.Contains(string(result), "<mark>highlighted</mark>") {
@@ -173,6 +184,7 @@ func TestPreprocessObsidian_Highlights(t *testing.T) {
 // --- Obsidian postprocessing tests ---
 
 func TestPreprocessObsidian_Wikilinks(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		input    string
@@ -255,6 +267,7 @@ func TestPreprocessObsidian_Wikilinks(t *testing.T) {
 }
 
 func TestPreprocessObsidian_AttachmentLinks(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		input    string
@@ -333,6 +346,7 @@ func TestPreprocessObsidian_AttachmentLinks(t *testing.T) {
 }
 
 func TestPreprocessObsidian_ImageEmbeds(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		input    string
@@ -415,6 +429,7 @@ func TestPreprocessObsidian_ImageEmbeds(t *testing.T) {
 }
 
 func TestPostprocessObsidian_Callouts(t *testing.T) {
+	t.Parallel()
 	input := "<blockquote>\n<p>[!warning] Be careful"
 	result := postprocessObsidian(input, nil)
 	if !strings.Contains(result, `callout-warning`) {
@@ -426,6 +441,7 @@ func TestPostprocessObsidian_Callouts(t *testing.T) {
 }
 
 func TestPostprocessObsidian_CalloutDefaultTitle(t *testing.T) {
+	t.Parallel()
 	input := "<blockquote>\n<p>[!info] "
 	result := postprocessObsidian(input, nil)
 	if !strings.Contains(result, `callout-info`) {
@@ -434,6 +450,7 @@ func TestPostprocessObsidian_CalloutDefaultTitle(t *testing.T) {
 }
 
 func TestPreprocessObsidian_EmbedWithAngleBrackets(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		input    string
@@ -466,6 +483,7 @@ func TestPreprocessObsidian_EmbedWithAngleBrackets(t *testing.T) {
 }
 
 func TestMarkdown_AngleBracketsInWikilinks(t *testing.T) {
+	t.Parallel()
 	// End-to-end test: angle brackets inside wiki links should not be
 	// interpreted as HTML tags by goldmark.
 	input := []byte("See [[Page <draft>]] for details")
@@ -482,6 +500,7 @@ func TestMarkdown_AngleBracketsInWikilinks(t *testing.T) {
 }
 
 func TestMarkdown_ChineseBracketsInWikilinks(t *testing.T) {
+	t.Parallel()
 	input := []byte("See [[Book《Title》]] here")
 	result, err := Markdown(input, nil)
 	if err != nil {
@@ -498,6 +517,7 @@ func TestMarkdown_ChineseBracketsInWikilinks(t *testing.T) {
 // --- Integration test: full markdown with Obsidian features ---
 
 func TestMarkdown_ObsidianFeatures(t *testing.T) {
+	t.Parallel()
 	input := []byte(`# My Notes
 
 This has ==highlights== and %%hidden comments%%.
@@ -526,6 +546,7 @@ Check [[Other Page]] for more info.
 }
 
 func TestPreprocessObsidian_WithVaultResolution(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	subDir := filepath.Join(dir, "sub")
 	os.MkdirAll(subDir, 0755)
@@ -561,6 +582,7 @@ func TestPreprocessObsidian_WithVaultResolution(t *testing.T) {
 }
 
 func TestPreprocessObsidian_EmbedWithVaultResolution(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	assetsDir := filepath.Join(dir, "assets")
 	os.MkdirAll(assetsDir, 0755)
@@ -583,6 +605,7 @@ func TestPreprocessObsidian_EmbedWithVaultResolution(t *testing.T) {
 }
 
 func TestPreprocessObsidian_ExcalidrawEmbed_WithShadowSVG(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	drawDir := filepath.Join(dir, "drawings")
 	os.MkdirAll(drawDir, 0755)
@@ -601,6 +624,7 @@ func TestPreprocessObsidian_ExcalidrawEmbed_WithShadowSVG(t *testing.T) {
 }
 
 func TestPreprocessObsidian_ExcalidrawEmbed_WithShadowPNG(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "diagram.excalidraw"), []byte(`{}`), 0644)
 	os.WriteFile(filepath.Join(dir, "diagram.excalidraw.png"), []byte("png"), 0644)
@@ -614,6 +638,7 @@ func TestPreprocessObsidian_ExcalidrawEmbed_WithShadowPNG(t *testing.T) {
 }
 
 func TestPreprocessObsidian_ExcalidrawEmbed_SVGPreferredOverPNG(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "diagram.excalidraw"), []byte(`{}`), 0644)
 	os.WriteFile(filepath.Join(dir, "diagram.excalidraw.svg"), []byte("<svg></svg>"), 0644)
@@ -628,6 +653,7 @@ func TestPreprocessObsidian_ExcalidrawEmbed_SVGPreferredOverPNG(t *testing.T) {
 }
 
 func TestPreprocessObsidian_ExcalidrawEmbed_NoShadowFallback(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	drawDir := filepath.Join(dir, "drawings")
 	os.MkdirAll(drawDir, 0755)
@@ -648,6 +674,7 @@ func TestPreprocessObsidian_ExcalidrawEmbed_NoShadowFallback(t *testing.T) {
 }
 
 func TestPreprocessObsidian_ExcalidrawEmbed_WithPrefix(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "test.excalidraw"), []byte(`{}`), 0644)
 	os.WriteFile(filepath.Join(dir, "test.excalidraw.svg"), []byte("<svg></svg>"), 0644)
@@ -661,6 +688,7 @@ func TestPreprocessObsidian_ExcalidrawEmbed_WithPrefix(t *testing.T) {
 }
 
 func TestPreprocessObsidian_ExcalidrawEmbed_FileNotFound(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	opts := &RenderOptions{VaultDir: dir, URLPrefix: ""}
 
@@ -679,6 +707,7 @@ func TestPreprocessObsidian_ExcalidrawEmbed_FileNotFound(t *testing.T) {
 }
 
 func TestPreprocessObsidian_ExcalidrawWikilink_WithShadow(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "drawing.excalidraw"), []byte(`{}`), 0644)
 	os.WriteFile(filepath.Join(dir, "drawing.excalidraw.svg"), []byte("<svg></svg>"), 0644)
@@ -692,6 +721,7 @@ func TestPreprocessObsidian_ExcalidrawWikilink_WithShadow(t *testing.T) {
 }
 
 func TestPreprocessObsidian_ExcalidrawEmbed_VaultWideResolution(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	// Shadow SVG is in a subdirectory, but the embed uses just the basename
 	subDir := filepath.Join(dir, "drawings", "nested")
@@ -709,6 +739,7 @@ func TestPreprocessObsidian_ExcalidrawEmbed_VaultWideResolution(t *testing.T) {
 }
 
 func TestPreprocessObsidian_ExcalidrawWikilink_VaultWideResolution(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	subDir := filepath.Join(dir, "drawings", "nested")
 	os.MkdirAll(subDir, 0755)
@@ -724,6 +755,7 @@ func TestPreprocessObsidian_ExcalidrawWikilink_VaultWideResolution(t *testing.T)
 }
 
 func TestFindExcalidrawShadow_VaultWideResolution(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	subDir := filepath.Join(dir, "deep", "folder")
 	os.MkdirAll(subDir, 0755)
@@ -739,6 +771,7 @@ func TestFindExcalidrawShadow_VaultWideResolution(t *testing.T) {
 }
 
 func TestFindExcalidrawShadow_VaultWideResolution_PNG(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	subDir := filepath.Join(dir, "assets")
 	os.MkdirAll(subDir, 0755)
@@ -753,6 +786,7 @@ func TestFindExcalidrawShadow_VaultWideResolution_PNG(t *testing.T) {
 }
 
 func TestResolveWikiTarget_CaseInsensitive(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	subDir := filepath.Join(dir, "notes")
 	os.MkdirAll(subDir, 0755)
@@ -767,6 +801,7 @@ func TestResolveWikiTarget_CaseInsensitive(t *testing.T) {
 }
 
 func TestResolveWikiTarget_SpaceHyphenInterop(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "My Page.md"), []byte("# Page"), 0644)
 
@@ -778,6 +813,7 @@ func TestResolveWikiTarget_SpaceHyphenInterop(t *testing.T) {
 }
 
 func TestResolveWikiTarget_WithHashAnchor(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "page.md"), []byte("# Page"), 0644)
 
@@ -789,6 +825,7 @@ func TestResolveWikiTarget_WithHashAnchor(t *testing.T) {
 }
 
 func TestResolveWikiTarget_DirectPathPreferredOverWalk(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	// Create file at root AND in subdirectory
 	os.WriteFile(filepath.Join(dir, "Page.md"), []byte("# Root Page"), 0644)
@@ -804,6 +841,7 @@ func TestResolveWikiTarget_DirectPathPreferredOverWalk(t *testing.T) {
 }
 
 func TestMarkdown_MultipleHighlightsOnSameLine(t *testing.T) {
+	t.Parallel()
 	input := []byte("This has ==first== and ==second== highlights")
 	result, err := Markdown(input, nil)
 	if err != nil {
@@ -818,6 +856,7 @@ func TestMarkdown_MultipleHighlightsOnSameLine(t *testing.T) {
 }
 
 func TestMarkdown_MultilineComments(t *testing.T) {
+	t.Parallel()
 	input := []byte("Before %%\nthis is hidden\n%% After")
 	result, err := Markdown(input, nil)
 	if err != nil {
@@ -829,6 +868,7 @@ func TestMarkdown_MultilineComments(t *testing.T) {
 }
 
 func TestMarkdown_EmptyInput(t *testing.T) {
+	t.Parallel()
 	result, err := Markdown([]byte(""), nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -843,6 +883,7 @@ func TestMarkdown_EmptyInput(t *testing.T) {
 }
 
 func TestPostprocessObsidian_MultipleCallouts(t *testing.T) {
+	t.Parallel()
 	input := "<blockquote>\n<p>[!warning] Warning title</p>\n</blockquote>\n<blockquote>\n<p>[!tip] Tip title</p>\n</blockquote>"
 	result := postprocessObsidian(input, nil)
 	if !strings.Contains(result, "callout-warning") {
@@ -854,6 +895,7 @@ func TestPostprocessObsidian_MultipleCallouts(t *testing.T) {
 }
 
 func TestResolveWikiTarget(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	subDir := filepath.Join(dir, "deep", "nested")
 	os.MkdirAll(subDir, 0755)
