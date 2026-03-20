@@ -61,6 +61,7 @@ func newSingleVault(dir, title string) *Server {
 }
 
 func TestNew(t *testing.T) {
+	t.Parallel()
 	srv := New([]Vault{{Name: "vault1", Path: "/tmp"}}, "Test Site")
 	if srv == nil {
 		t.Fatal("expected non-nil server")
@@ -74,6 +75,7 @@ func TestNew(t *testing.T) {
 }
 
 func TestServeMarkdownFile(t *testing.T) {
+	t.Parallel()
 	dir := setupTestDir(t)
 	srv := newSingleVault(dir, "Test")
 
@@ -94,6 +96,7 @@ func TestServeMarkdownFile(t *testing.T) {
 }
 
 func TestServeMarkdownWithoutExtension(t *testing.T) {
+	t.Parallel()
 	dir := setupTestDir(t)
 	srv := newSingleVault(dir, "Test")
 
@@ -111,6 +114,7 @@ func TestServeMarkdownWithoutExtension(t *testing.T) {
 }
 
 func TestServeDirectoryWithIndex(t *testing.T) {
+	t.Parallel()
 	dir := setupTestDir(t)
 	srv := newSingleVault(dir, "Test")
 
@@ -134,6 +138,7 @@ func TestServeDirectoryWithIndex(t *testing.T) {
 }
 
 func TestServeDirectoryWithReadme(t *testing.T) {
+	t.Parallel()
 	dir := setupTestDir(t)
 	srv := newSingleVault(dir, "Test")
 
@@ -157,6 +162,7 @@ func TestServeDirectoryWithReadme(t *testing.T) {
 }
 
 func TestServeDirectoryListing(t *testing.T) {
+	t.Parallel()
 	dir := setupTestDir(t)
 	// Create a directory without index or README
 	emptyDir := filepath.Join(dir, "empty")
@@ -179,6 +185,7 @@ func TestServeDirectoryListing(t *testing.T) {
 }
 
 func TestServeDirectoryHidesHiddenFiles(t *testing.T) {
+	t.Parallel()
 	dir := setupTestDir(t)
 	srv := newSingleVault(dir, "Test")
 
@@ -193,6 +200,7 @@ func TestServeDirectoryHidesHiddenFiles(t *testing.T) {
 }
 
 func TestNotFound(t *testing.T) {
+	t.Parallel()
 	dir := setupTestDir(t)
 	srv := newSingleVault(dir, "Test")
 
@@ -206,6 +214,7 @@ func TestNotFound(t *testing.T) {
 }
 
 func TestPathTraversal(t *testing.T) {
+	t.Parallel()
 	dir := setupTestDir(t)
 	srv := newSingleVault(dir, "Test")
 
@@ -223,6 +232,7 @@ func TestPathTraversal(t *testing.T) {
 }
 
 func TestSearchHandler(t *testing.T) {
+	t.Parallel()
 	dir := setupTestDir(t)
 	srv := newSingleVault(dir, "Test")
 
@@ -240,6 +250,7 @@ func TestSearchHandler(t *testing.T) {
 }
 
 func TestSearchEmptyQuery(t *testing.T) {
+	t.Parallel()
 	dir := setupTestDir(t)
 	srv := newSingleVault(dir, "Test")
 
@@ -253,6 +264,7 @@ func TestSearchEmptyQuery(t *testing.T) {
 }
 
 func TestSearchNoResults(t *testing.T) {
+	t.Parallel()
 	dir := setupTestDir(t)
 	srv := newSingleVault(dir, "Test")
 
@@ -268,6 +280,7 @@ func TestSearchNoResults(t *testing.T) {
 // --- Wiki link resolution tests ---
 
 func TestWikiLinkResolution_FileInSubdir(t *testing.T) {
+	t.Parallel()
 	dir := setupTestDir(t)
 	// Create a file in a subdirectory that we'll link to without a path
 	subDir := filepath.Join(dir, "notes")
@@ -291,6 +304,7 @@ func TestWikiLinkResolution_FileInSubdir(t *testing.T) {
 }
 
 func TestWikiLinkResolution_WithoutExtension(t *testing.T) {
+	t.Parallel()
 	dir := setupTestDir(t)
 	subDir := filepath.Join(dir, "deep", "nested")
 	os.MkdirAll(subDir, 0755)
@@ -313,6 +327,7 @@ func TestWikiLinkResolution_WithoutExtension(t *testing.T) {
 }
 
 func TestWikiLinkResolution_CaseInsensitive(t *testing.T) {
+	t.Parallel()
 	dir := setupTestDir(t)
 	subDir := filepath.Join(dir, "wiki")
 	os.Mkdir(subDir, 0755)
@@ -335,6 +350,7 @@ func TestWikiLinkResolution_CaseInsensitive(t *testing.T) {
 }
 
 func TestWikiLinkResolution_DirectFileStillWorks(t *testing.T) {
+	t.Parallel()
 	dir := setupTestDir(t)
 	srv := newSingleVault(dir, "Test")
 
@@ -349,6 +365,7 @@ func TestWikiLinkResolution_DirectFileStillWorks(t *testing.T) {
 }
 
 func TestWikiLinkResolution_NotFound(t *testing.T) {
+	t.Parallel()
 	dir := setupTestDir(t)
 	srv := newSingleVault(dir, "Test")
 
@@ -363,6 +380,7 @@ func TestWikiLinkResolution_NotFound(t *testing.T) {
 }
 
 func TestWikiLinkResolution_FileWithSpaces(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	subDir := filepath.Join(dir, "notes")
 	os.Mkdir(subDir, 0755)
@@ -385,6 +403,7 @@ func TestWikiLinkResolution_FileWithSpaces(t *testing.T) {
 }
 
 func TestWikiLinkResolution_FileWithSpecialChars(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	subDir := filepath.Join(dir, "notes")
 	os.Mkdir(subDir, 0755)
@@ -407,6 +426,7 @@ func TestWikiLinkResolution_FileWithSpecialChars(t *testing.T) {
 }
 
 func TestWikiLinkResolution_SpaceHyphenInterop(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	subDir := filepath.Join(dir, "notes")
 	os.Mkdir(subDir, 0755)
@@ -430,6 +450,7 @@ func TestWikiLinkResolution_SpaceHyphenInterop(t *testing.T) {
 }
 
 func TestServeMarkdownFile_WithSpaces(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "My Page.md"), []byte("# My Page\n\nContent"), 0644)
 
@@ -452,6 +473,7 @@ func TestServeMarkdownFile_WithSpaces(t *testing.T) {
 // --- Attachment serving tests ---
 
 func TestServeAttachment_DirectPath_Raw(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	// Create a PNG file
 	os.WriteFile(filepath.Join(dir, "photo.png"), []byte("fake png data"), 0644)
@@ -473,6 +495,7 @@ func TestServeAttachment_DirectPath_Raw(t *testing.T) {
 }
 
 func TestServeAttachment_DirectPath_ImageRequest(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "photo.png"), []byte("fake png data"), 0644)
 
@@ -494,6 +517,7 @@ func TestServeAttachment_DirectPath_ImageRequest(t *testing.T) {
 }
 
 func TestServeAttachment_ViewerPage(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "photo.png"), []byte("fake png data"), 0644)
 
@@ -522,6 +546,7 @@ func TestServeAttachment_ViewerPage(t *testing.T) {
 }
 
 func TestServeAttachment_ViewerPage_AllFormats(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	formats := []string{".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".bmp", ".ico", ".avif", ".tiff", ".tif"}
 	for _, ext := range formats {
@@ -549,6 +574,7 @@ func TestServeAttachment_ViewerPage_AllFormats(t *testing.T) {
 }
 
 func TestServeAttachment_InSubdir(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	assetsDir := filepath.Join(dir, "assets")
 	os.Mkdir(assetsDir, 0755)
@@ -568,6 +594,7 @@ func TestServeAttachment_InSubdir(t *testing.T) {
 }
 
 func TestWikiLinkResolution_Attachment(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	assetsDir := filepath.Join(dir, "assets")
 	os.Mkdir(assetsDir, 0755)
@@ -590,6 +617,7 @@ func TestWikiLinkResolution_Attachment(t *testing.T) {
 }
 
 func TestServeExcalidraw_ViewerPage(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	excalidrawData := `{"type":"excalidraw","version":2,"elements":[{"type":"rectangle","x":10,"y":10,"width":100,"height":50}],"appState":{"viewBackgroundColor":"#ffffff"}}`
 	os.WriteFile(filepath.Join(dir, "diagram.excalidraw"), []byte(excalidrawData), 0644)
@@ -622,6 +650,7 @@ func TestServeExcalidraw_ViewerPage(t *testing.T) {
 }
 
 func TestServeExcalidraw_RawDownload(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	excalidrawData := `{"type":"excalidraw","version":2,"elements":[]}`
 	os.WriteFile(filepath.Join(dir, "diagram.excalidraw"), []byte(excalidrawData), 0644)
@@ -643,6 +672,7 @@ func TestServeExcalidraw_RawDownload(t *testing.T) {
 }
 
 func TestMarkdownWithExcalidrawEmbed(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	drawDir := filepath.Join(dir, "drawings")
 	os.MkdirAll(drawDir, 0755)
@@ -672,6 +702,7 @@ func TestMarkdownWithExcalidrawEmbed(t *testing.T) {
 }
 
 func TestServeExcalidraw_ProgrammaticFetch(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	excalidrawData := `{"type":"excalidraw","version":2,"elements":[]}`
 	os.WriteFile(filepath.Join(dir, "diagram.excalidraw"), []byte(excalidrawData), 0644)
@@ -694,6 +725,7 @@ func TestServeExcalidraw_ProgrammaticFetch(t *testing.T) {
 }
 
 func TestServeExcalidraw_ShadowSVG(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "diagram.excalidraw"), []byte(`{}`), 0644)
 	os.WriteFile(filepath.Join(dir, "diagram.excalidraw.svg"), []byte("<svg>test</svg>"), 0644)
@@ -716,6 +748,7 @@ func TestServeExcalidraw_ShadowSVG(t *testing.T) {
 }
 
 func TestServeExcalidraw_ShadowPNG(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "diagram.excalidraw"), []byte(`{}`), 0644)
 	os.WriteFile(filepath.Join(dir, "diagram.excalidraw.png"), []byte("pngdata"), 0644)
@@ -737,6 +770,7 @@ func TestServeExcalidraw_ShadowPNG(t *testing.T) {
 }
 
 func TestServeExcalidraw_ShadowSVGPreferredOverPNG(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "diagram.excalidraw"), []byte(`{}`), 0644)
 	os.WriteFile(filepath.Join(dir, "diagram.excalidraw.svg"), []byte("<svg>preferred</svg>"), 0644)
@@ -759,6 +793,7 @@ func TestServeExcalidraw_ShadowSVGPreferredOverPNG(t *testing.T) {
 }
 
 func TestWikiLinkResolution_Excalidraw(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	drawDir := filepath.Join(dir, "drawings")
 	os.Mkdir(drawDir, 0755)
@@ -780,6 +815,7 @@ func TestWikiLinkResolution_Excalidraw(t *testing.T) {
 }
 
 func TestMarkdownWithAttachmentLinks(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	assetsDir := filepath.Join(dir, "assets")
 	os.Mkdir(assetsDir, 0755)
@@ -816,6 +852,7 @@ func TestMarkdownWithAttachmentLinks(t *testing.T) {
 // --- Breadcrumb tests ---
 
 func TestBuildBreadcrumbs_Root(t *testing.T) {
+	t.Parallel()
 	srv := newSingleVault("/tmp", "Test")
 	crumbs := srv.buildBreadcrumbs("test", "/")
 	if len(crumbs) != 1 {
@@ -827,6 +864,7 @@ func TestBuildBreadcrumbs_Root(t *testing.T) {
 }
 
 func TestBuildBreadcrumbs_NestedPath(t *testing.T) {
+	t.Parallel()
 	srv := newSingleVault("/tmp", "Test")
 	crumbs := srv.buildBreadcrumbs("test", "/docs/getting-started.md")
 	// Single vault: Home / docs / getting started
@@ -847,6 +885,7 @@ func TestBuildBreadcrumbs_NestedPath(t *testing.T) {
 // --- formatSize tests ---
 
 func TestFormatSize(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		size     int64
 		expected string
@@ -870,6 +909,7 @@ func TestFormatSize(t *testing.T) {
 // --- Multi-vault tests ---
 
 func TestMultiVault_LandingPage(t *testing.T) {
+	t.Parallel()
 	dir1 := t.TempDir()
 	dir2 := t.TempDir()
 	os.WriteFile(filepath.Join(dir1, "hello.md"), []byte("# Hello"), 0644)
@@ -900,6 +940,7 @@ func TestMultiVault_LandingPage(t *testing.T) {
 }
 
 func TestMultiVault_ServeVaultFile(t *testing.T) {
+	t.Parallel()
 	dir1 := t.TempDir()
 	dir2 := t.TempDir()
 	os.WriteFile(filepath.Join(dir1, "hello.md"), []byte("# Hello from Notes"), 0644)
@@ -938,6 +979,7 @@ func TestMultiVault_ServeVaultFile(t *testing.T) {
 }
 
 func TestMultiVault_UnknownVault(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "hello.md"), []byte("# Hello"), 0644)
 
@@ -956,6 +998,7 @@ func TestMultiVault_UnknownVault(t *testing.T) {
 }
 
 func TestMultiVault_VaultRootDirectory(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "hello.md"), []byte("# Hello"), 0644)
 	os.WriteFile(filepath.Join(dir, "world.md"), []byte("# World"), 0644)
@@ -980,6 +1023,7 @@ func TestMultiVault_VaultRootDirectory(t *testing.T) {
 }
 
 func TestMultiVault_SearchAcrossVaults(t *testing.T) {
+	t.Parallel()
 	dir1 := t.TempDir()
 	dir2 := t.TempDir()
 	os.WriteFile(filepath.Join(dir1, "hello.md"), []byte("# Hello\n\nunique_search_term"), 0644)
@@ -1007,6 +1051,7 @@ func TestMultiVault_SearchAcrossVaults(t *testing.T) {
 }
 
 func TestMultiVault_SearchSingleVault(t *testing.T) {
+	t.Parallel()
 	dir1 := t.TempDir()
 	dir2 := t.TempDir()
 	os.WriteFile(filepath.Join(dir1, "hello.md"), []byte("# Hello\n\nshared_term"), 0644)
@@ -1034,6 +1079,7 @@ func TestMultiVault_SearchSingleVault(t *testing.T) {
 }
 
 func TestMultiVault_Breadcrumbs(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	subDir := filepath.Join(dir, "sub")
 	os.MkdirAll(subDir, 0755)
@@ -1064,6 +1110,7 @@ func TestMultiVault_Breadcrumbs(t *testing.T) {
 }
 
 func TestMultiVault_WikiLinkRendering(t *testing.T) {
+	t.Parallel()
 	dir1 := t.TempDir()
 	dir2 := t.TempDir()
 
@@ -1101,6 +1148,7 @@ func TestMultiVault_WikiLinkRendering(t *testing.T) {
 }
 
 func TestMultiVault_WikiLinkEmbed(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	assetsDir := filepath.Join(dir, "assets")
 	os.MkdirAll(assetsDir, 0755)
@@ -1129,7 +1177,143 @@ func TestMultiVault_WikiLinkEmbed(t *testing.T) {
 	}
 }
 
+// --- Error path tests ---
+
+func TestServeMarkdown_ReadError(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	// Create a directory named "secret.md" — os.ReadFile on a directory will fail
+	os.Mkdir(filepath.Join(dir, "secret.md"), 0755)
+
+	srv := newSingleVault(dir, "Test")
+
+	req := httptest.NewRequest("GET", "/secret.md", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	// When "secret.md" is a directory, the server should serve it as a directory listing
+	// rather than erroring, since os.Stat succeeds and info.IsDir() is true.
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200 for directory named .md, got %d", w.Code)
+	}
+}
+
+func TestServeExcalidrawViewer_ReadError(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	// Create a directory named "drawing.excalidraw" — os.ReadFile will fail
+	os.Mkdir(filepath.Join(dir, "drawing.excalidraw"), 0755)
+
+	srv := newSingleVault(dir, "Test")
+
+	// Request the excalidraw "file" which is actually a directory
+	req := httptest.NewRequest("GET", "/drawing.excalidraw", nil)
+	req.Header.Set("Sec-Fetch-Dest", "document")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	// The server sees it's a directory and serves directory listing
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200 for directory named .excalidraw, got %d", w.Code)
+	}
+}
+
+func TestServeDirectory_SortByDate(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "alpha.md"), []byte("# Alpha"), 0644)
+	os.WriteFile(filepath.Join(dir, "beta.md"), []byte("# Beta"), 0644)
+
+	srv := newSingleVault(dir, "Test")
+
+	req := httptest.NewRequest("GET", "/?sort=date", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "alpha.md") || !strings.Contains(body, "beta.md") {
+		t.Error("expected directory listing to contain both files when sorted by date")
+	}
+}
+
+func TestServeDirectory_InvalidSortFallsBackToName(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "file.md"), []byte("# File"), 0644)
+
+	srv := newSingleVault(dir, "Test")
+
+	req := httptest.NewRequest("GET", "/?sort=invalid", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", w.Code)
+	}
+}
+
+func TestServeDirectory_OnlyHiddenFiles(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, ".gitignore"), []byte("node_modules"), 0644)
+	os.WriteFile(filepath.Join(dir, ".hidden"), []byte("secret"), 0644)
+
+	srv := newSingleVault(dir, "Test")
+
+	req := httptest.NewRequest("GET", "/", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	if strings.Contains(body, ".gitignore") || strings.Contains(body, ".hidden") {
+		t.Error("expected hidden files to not appear in listing")
+	}
+}
+
+func TestServeFileContent_NonExistentFile(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	srv := newSingleVault(dir, "Test")
+
+	// Request a non-existent raw file
+	req := httptest.NewRequest("GET", "/missing.txt?raw=1", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("expected 404 for missing raw file, got %d", w.Code)
+	}
+}
+
+func TestSearchHandler_ContextSnippet(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	content := "Line one\nLine two\nThe magic keyword here\nLine four\nLine five"
+	os.WriteFile(filepath.Join(dir, "doc.md"), []byte(content), 0644)
+
+	srv := newSingleVault(dir, "Test")
+
+	req := httptest.NewRequest("GET", "/search?q=magic", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "magic") {
+		t.Error("expected search results to contain the search term in snippet")
+	}
+}
+
 func TestSingleVault_WikiLinkResolvesPath(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	subDir := filepath.Join(dir, "notes")
 	os.MkdirAll(subDir, 0755)

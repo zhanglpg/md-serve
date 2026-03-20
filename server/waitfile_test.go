@@ -11,6 +11,7 @@ import (
 )
 
 func TestWaitForFile_FileAlreadyExists(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	fullPath := filepath.Join(dir, "photo.png")
 	os.WriteFile(fullPath, []byte("png data"), 0644)
@@ -25,15 +26,16 @@ func TestWaitForFile_FileAlreadyExists(t *testing.T) {
 }
 
 func TestWaitForFile_FileAppears(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	fullPath := filepath.Join(dir, "photo.png")
 
 	go func() {
-		time.Sleep(500 * time.Millisecond)
+		time.Sleep(150 * time.Millisecond)
 		os.WriteFile(fullPath, []byte("real image data"), 0644)
 	}()
 
-	info, err := waitForFile(context.Background(), fullPath, 5*time.Second)
+	info, err := waitForFile(context.Background(), fullPath, 2*time.Second)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -46,26 +48,28 @@ func TestWaitForFile_FileAppears(t *testing.T) {
 }
 
 func TestWaitForFile_Timeout(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	fullPath := filepath.Join(dir, "photo.png")
 
 	start := time.Now()
-	_, err := waitForFile(context.Background(), fullPath, 1*time.Second)
+	_, err := waitForFile(context.Background(), fullPath, 500*time.Millisecond)
 	elapsed := time.Since(start)
 
 	if err != errFileWaitTimeout {
 		t.Errorf("expected errFileWaitTimeout, got %v", err)
 	}
-	if elapsed < 1*time.Second {
-		t.Errorf("expected at least 1s wait, got %v", elapsed)
+	if elapsed < 500*time.Millisecond {
+		t.Errorf("expected at least 500ms wait, got %v", elapsed)
 	}
 }
 
 func TestWaitForFile_ContextCanceled(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	fullPath := filepath.Join(dir, "photo.png")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 
 	start := time.Now()
@@ -81,11 +85,12 @@ func TestWaitForFile_ContextCanceled(t *testing.T) {
 }
 
 func TestHandleVaultRequest_FileAppearsLater(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 
 	// Create the real file after a short delay
 	go func() {
-		time.Sleep(300 * time.Millisecond)
+		time.Sleep(150 * time.Millisecond)
 		os.WriteFile(filepath.Join(dir, "photo.png"), []byte("real png data"), 0644)
 	}()
 
@@ -105,12 +110,13 @@ func TestHandleVaultRequest_FileAppearsLater(t *testing.T) {
 	}
 }
 
+// TestHandleVaultRequest_Timeout503 mutates global fileWaitTimeout — must NOT be parallel.
 func TestHandleVaultRequest_Timeout503(t *testing.T) {
 	dir := t.TempDir()
 
 	// Reduce timeout for test speed
 	orig := fileWaitTimeout
-	fileWaitTimeout = 2 * time.Second
+	fileWaitTimeout = 500 * time.Millisecond
 	defer func() { fileWaitTimeout = orig }()
 
 	srv := newSingleVault(dir, "Test")
@@ -129,6 +135,7 @@ func TestHandleVaultRequest_Timeout503(t *testing.T) {
 	}
 }
 
+// TestHandleVaultRequest_MissingFile_Still404 mutates global fileWaitTimeout — must NOT be parallel.
 func TestHandleVaultRequest_MissingFile_Still404(t *testing.T) {
 	dir := t.TempDir()
 
@@ -155,6 +162,7 @@ func TestHandleVaultRequest_MissingFile_Still404(t *testing.T) {
 }
 
 func TestHandleVaultRequest_NavigationDoesNotWait(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	srv := newSingleVault(dir, "Test")
 
