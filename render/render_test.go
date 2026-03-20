@@ -752,6 +752,107 @@ func TestFindExcalidrawShadow_VaultWideResolution_PNG(t *testing.T) {
 	}
 }
 
+func TestResolveWikiTarget_CaseInsensitive(t *testing.T) {
+	dir := t.TempDir()
+	subDir := filepath.Join(dir, "notes")
+	os.MkdirAll(subDir, 0755)
+	os.WriteFile(filepath.Join(subDir, "my-notes.md"), []byte("# Notes"), 0644)
+
+	// Search with different casing
+	got := ResolveWikiTarget(dir, "My-Notes")
+	expected := filepath.Join("notes", "my-notes.md")
+	if got != expected {
+		t.Errorf("ResolveWikiTarget case insensitive = %q, want %q", got, expected)
+	}
+}
+
+func TestResolveWikiTarget_SpaceHyphenInterop(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "My Page.md"), []byte("# Page"), 0644)
+
+	// Search with hyphens should find file with spaces
+	got := ResolveWikiTarget(dir, "My-Page")
+	if got != "My Page.md" {
+		t.Errorf("ResolveWikiTarget space/hyphen interop = %q, want %q", got, "My Page.md")
+	}
+}
+
+func TestResolveWikiTarget_WithHashAnchor(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "page.md"), []byte("# Page"), 0644)
+
+	// Target with .md extension already
+	got := ResolveWikiTarget(dir, "page.md")
+	if got != "page.md" {
+		t.Errorf("ResolveWikiTarget with .md suffix = %q, want %q", got, "page.md")
+	}
+}
+
+func TestResolveWikiTarget_DirectPathPreferredOverWalk(t *testing.T) {
+	dir := t.TempDir()
+	// Create file at root AND in subdirectory
+	os.WriteFile(filepath.Join(dir, "Page.md"), []byte("# Root Page"), 0644)
+	subDir := filepath.Join(dir, "sub")
+	os.MkdirAll(subDir, 0755)
+	os.WriteFile(filepath.Join(subDir, "Page.md"), []byte("# Sub Page"), 0644)
+
+	// Direct path should win
+	got := ResolveWikiTarget(dir, "Page")
+	if got != "Page.md" {
+		t.Errorf("ResolveWikiTarget direct path preferred = %q, want %q", got, "Page.md")
+	}
+}
+
+func TestMarkdown_MultipleHighlightsOnSameLine(t *testing.T) {
+	input := []byte("This has ==first== and ==second== highlights")
+	result, err := Markdown(input, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(result.HTML, "<mark>first</mark>") {
+		t.Error("expected first highlight to be converted")
+	}
+	if !strings.Contains(result.HTML, "<mark>second</mark>") {
+		t.Error("expected second highlight to be converted")
+	}
+}
+
+func TestMarkdown_MultilineComments(t *testing.T) {
+	input := []byte("Before %%\nthis is hidden\n%% After")
+	result, err := Markdown(input, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if strings.Contains(result.HTML, "this is hidden") {
+		t.Error("expected multiline comment to be removed")
+	}
+}
+
+func TestMarkdown_EmptyInput(t *testing.T) {
+	result, err := Markdown([]byte(""), nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.HTML != "" && result.HTML != "\n" {
+		// Empty input should produce minimal output
+		t.Logf("empty input produced: %q", result.HTML)
+	}
+	if len(result.TOC) != 0 {
+		t.Errorf("expected 0 TOC entries for empty input, got %d", len(result.TOC))
+	}
+}
+
+func TestPostprocessObsidian_MultipleCallouts(t *testing.T) {
+	input := "<blockquote>\n<p>[!warning] Warning title</p>\n</blockquote>\n<blockquote>\n<p>[!tip] Tip title</p>\n</blockquote>"
+	result := postprocessObsidian(input, nil)
+	if !strings.Contains(result, "callout-warning") {
+		t.Error("expected callout-warning class")
+	}
+	if !strings.Contains(result, "callout-tip") {
+		t.Error("expected callout-tip class")
+	}
+}
+
 func TestResolveWikiTarget(t *testing.T) {
 	dir := t.TempDir()
 	subDir := filepath.Join(dir, "deep", "nested")

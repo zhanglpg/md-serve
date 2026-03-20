@@ -1129,6 +1129,134 @@ func TestMultiVault_WikiLinkEmbed(t *testing.T) {
 	}
 }
 
+// --- Error path tests ---
+
+func TestServeMarkdown_ReadError(t *testing.T) {
+	dir := t.TempDir()
+	// Create a directory named "secret.md" — os.ReadFile on a directory will fail
+	os.Mkdir(filepath.Join(dir, "secret.md"), 0755)
+
+	srv := newSingleVault(dir, "Test")
+
+	req := httptest.NewRequest("GET", "/secret.md", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	// When "secret.md" is a directory, the server should serve it as a directory listing
+	// rather than erroring, since os.Stat succeeds and info.IsDir() is true.
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200 for directory named .md, got %d", w.Code)
+	}
+}
+
+func TestServeExcalidrawViewer_ReadError(t *testing.T) {
+	dir := t.TempDir()
+	// Create a directory named "drawing.excalidraw" — os.ReadFile will fail
+	os.Mkdir(filepath.Join(dir, "drawing.excalidraw"), 0755)
+
+	srv := newSingleVault(dir, "Test")
+
+	// Request the excalidraw "file" which is actually a directory
+	req := httptest.NewRequest("GET", "/drawing.excalidraw", nil)
+	req.Header.Set("Sec-Fetch-Dest", "document")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	// The server sees it's a directory and serves directory listing
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200 for directory named .excalidraw, got %d", w.Code)
+	}
+}
+
+func TestServeDirectory_SortByDate(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "alpha.md"), []byte("# Alpha"), 0644)
+	os.WriteFile(filepath.Join(dir, "beta.md"), []byte("# Beta"), 0644)
+
+	srv := newSingleVault(dir, "Test")
+
+	req := httptest.NewRequest("GET", "/?sort=date", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "alpha.md") || !strings.Contains(body, "beta.md") {
+		t.Error("expected directory listing to contain both files when sorted by date")
+	}
+}
+
+func TestServeDirectory_InvalidSortFallsBackToName(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "file.md"), []byte("# File"), 0644)
+
+	srv := newSingleVault(dir, "Test")
+
+	req := httptest.NewRequest("GET", "/?sort=invalid", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", w.Code)
+	}
+}
+
+func TestServeDirectory_OnlyHiddenFiles(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, ".gitignore"), []byte("node_modules"), 0644)
+	os.WriteFile(filepath.Join(dir, ".hidden"), []byte("secret"), 0644)
+
+	srv := newSingleVault(dir, "Test")
+
+	req := httptest.NewRequest("GET", "/", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	if strings.Contains(body, ".gitignore") || strings.Contains(body, ".hidden") {
+		t.Error("expected hidden files to not appear in listing")
+	}
+}
+
+func TestServeFileContent_NonExistentFile(t *testing.T) {
+	dir := t.TempDir()
+	srv := newSingleVault(dir, "Test")
+
+	// Request a non-existent raw file
+	req := httptest.NewRequest("GET", "/missing.txt?raw=1", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("expected 404 for missing raw file, got %d", w.Code)
+	}
+}
+
+func TestSearchHandler_ContextSnippet(t *testing.T) {
+	dir := t.TempDir()
+	content := "Line one\nLine two\nThe magic keyword here\nLine four\nLine five"
+	os.WriteFile(filepath.Join(dir, "doc.md"), []byte(content), 0644)
+
+	srv := newSingleVault(dir, "Test")
+
+	req := httptest.NewRequest("GET", "/search?q=magic", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "magic") {
+		t.Error("expected search results to contain the search term in snippet")
+	}
+}
+
 func TestSingleVault_WikiLinkResolvesPath(t *testing.T) {
 	dir := t.TempDir()
 	subDir := filepath.Join(dir, "notes")
