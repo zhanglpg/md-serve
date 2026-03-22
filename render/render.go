@@ -125,8 +125,8 @@ var (
 		`"`, "&quot;",
 	)
 
-	// imageExts lists file extensions that should be rendered as <img> embeds.
-	imageExts = map[string]bool{
+	// ImageExts lists file extensions that should be rendered as <img> embeds.
+	ImageExts = map[string]bool{
 		".png": true, ".jpg": true, ".jpeg": true, ".gif": true,
 		".svg": true, ".webp": true, ".bmp": true, ".ico": true,
 		".avif": true, ".apng": true, ".tiff": true, ".tif": true,
@@ -157,49 +157,52 @@ func preprocessObsidian(source []byte, opts *RenderOptions) []byte {
 		vaultDir = opts.VaultDir
 	}
 	s = embedRe.ReplaceAllStringFunc(s, func(match string) string {
-		parts := embedRe.FindStringSubmatch(match)
-		target := parts[1]
-		alt := target
-		if parts[2] != "" {
-			alt = parts[2]
-		}
-		// Resolve target in vault, including excalidraw shadow lookup.
-		pathForURL := resolveWikiHref(vaultDir, target)
-		href := prefix + "/" + urlEncodePath(pathForURL)
-		ext := strings.ToLower(filepath.Ext(target))
-		escapedAlt := htmlEscaper.Replace(alt)
-		if imageExts[ext] || ext == excalidrawExt {
-			return `<img src="` + href + `" alt="` + escapedAlt + `" />`
-		}
-		return `<a class="wikilink embed" href="` + href + `">` + escapedAlt + `</a>`
+		return renderEmbed(embedRe.FindStringSubmatch(match), vaultDir, prefix)
 	})
 
 	// Convert wiki links: [[target]] or [[target|display]]
 	// Processed before goldmark to prevent angle brackets (< > 《 》) in
 	// targets from being interpreted as HTML tags by the markdown parser.
 	s = wikilinkRe.ReplaceAllStringFunc(s, func(match string) string {
-		parts := wikilinkRe.FindStringSubmatch(match)
-		target := parts[1]
-		display := target
-		if parts[2] != "" {
-			display = parts[2]
-		}
-		// For display text of path links, show only the filename (without path)
-		if parts[2] == "" && strings.Contains(display, "/") {
-			display = filepath.Base(display)
-		}
-		// Resolve target in vault, including excalidraw shadow lookup.
-		href := resolveWikiHref(vaultDir, target)
-		// If resolution didn't find the file, use the target with .md suffix
-		// for note links so the URL still looks correct.
-		if href == target && !isAttachment(href) && !strings.HasSuffix(href, ".md") {
-			href += ".md"
-		}
-		href = urlEncodePath(href)
-		return `<a class="wikilink" href="` + prefix + `/` + href + `">` + htmlEscaper.Replace(display) + `</a>`
+		return renderWikilink(wikilinkRe.FindStringSubmatch(match), vaultDir, prefix)
 	})
 
 	return []byte(s)
+}
+
+// renderEmbed converts an ![[embed]] match into an <img> or <a> tag.
+func renderEmbed(parts []string, vaultDir, prefix string) string {
+	target := parts[1]
+	alt := target
+	if parts[2] != "" {
+		alt = parts[2]
+	}
+	pathForURL := resolveWikiHref(vaultDir, target)
+	href := prefix + "/" + URLEncodePath(pathForURL)
+	escapedAlt := htmlEscaper.Replace(alt)
+	ext := strings.ToLower(filepath.Ext(target))
+	if ImageExts[ext] || ext == excalidrawExt {
+		return `<img src="` + href + `" alt="` + escapedAlt + `" />`
+	}
+	return `<a class="wikilink embed" href="` + href + `">` + escapedAlt + `</a>`
+}
+
+// renderWikilink converts a [[wikilink]] match into an <a> tag.
+func renderWikilink(parts []string, vaultDir, prefix string) string {
+	target := parts[1]
+	display := target
+	if parts[2] != "" {
+		display = parts[2]
+	}
+	if parts[2] == "" && strings.Contains(display, "/") {
+		display = filepath.Base(display)
+	}
+	href := resolveWikiHref(vaultDir, target)
+	if href == target && !isAttachment(href) && !strings.HasSuffix(href, ".md") {
+		href += ".md"
+	}
+	href = URLEncodePath(href)
+	return `<a class="wikilink" href="` + prefix + `/` + href + `">` + htmlEscaper.Replace(display) + `</a>`
 }
 
 // findExcalidrawShadow looks for a shadow SVG or PNG file exported by Obsidian
@@ -261,8 +264,8 @@ func isAttachment(target string) bool {
 	return ext != "" && ext != ".md" && ext != ".markdown"
 }
 
-// urlEncodePath URL-encodes each segment of a slash-separated path.
-func urlEncodePath(path string) string {
+// URLEncodePath URL-encodes each segment of a slash-separated path.
+func URLEncodePath(path string) string {
 	segments := strings.Split(path, "/")
 	for i, p := range segments {
 		segments[i] = url.PathEscape(p)
@@ -280,11 +283,7 @@ func ResolveWikiTarget(vaultDir, target string) string {
 		return ""
 	}
 
-	// Determine the filename to search for
-	searchName := target
-	if !isAttachment(target) && !strings.HasSuffix(strings.ToLower(target), ".md") {
-		searchName = target + ".md"
-	}
+	searchName := wikiSearchName(target)
 
 	// First, try direct path relative to vault root
 	directPath := filepath.Join(vaultDir, filepath.Clean(searchName))
@@ -293,14 +292,33 @@ func ResolveWikiTarget(vaultDir, target string) string {
 		return rel
 	}
 
-	// Search by basename (case-insensitive), matching Obsidian behavior
-	basename := strings.ToLower(filepath.Base(searchName))
-	altBasename := ""
-	if strings.Contains(basename, " ") {
-		altBasename = strings.ReplaceAll(basename, " ", "-")
-	} else if strings.Contains(basename, "-") {
-		altBasename = strings.ReplaceAll(basename, "-", " ")
+	return searchVaultByBasename(vaultDir, searchName)
+}
+
+// wikiSearchName returns the filename to search for, appending .md for note targets.
+func wikiSearchName(target string) string {
+	if !isAttachment(target) && !strings.HasSuffix(strings.ToLower(target), ".md") {
+		return target + ".md"
 	}
+	return target
+}
+
+// altBasename returns an alternative basename with spaces/hyphens swapped, or empty.
+func altBasename(name string) string {
+	if strings.Contains(name, " ") {
+		return strings.ReplaceAll(name, " ", "-")
+	}
+	if strings.Contains(name, "-") {
+		return strings.ReplaceAll(name, "-", " ")
+	}
+	return ""
+}
+
+// searchVaultByBasename walks the vault looking for a file matching by basename
+// (case-insensitive, with space/hyphen interoperability).
+func searchVaultByBasename(vaultDir, searchName string) string {
+	basename := strings.ToLower(filepath.Base(searchName))
+	alt := altBasename(basename)
 
 	var match string
 	filepath.WalkDir(vaultDir, func(path string, d fs.DirEntry, err error) error {
@@ -308,7 +326,7 @@ func ResolveWikiTarget(vaultDir, target string) string {
 			return nil
 		}
 		name := strings.ToLower(filepath.Base(path))
-		if name == basename || (altBasename != "" && name == altBasename) {
+		if name == basename || (alt != "" && name == alt) {
 			rel, err := filepath.Rel(vaultDir, path)
 			if err == nil {
 				match = rel

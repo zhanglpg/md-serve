@@ -40,23 +40,10 @@ func main() {
 		dirs = append(dirs, ".")
 	}
 
-	vaults := make([]server.Vault, 0, len(dirs))
-	for _, d := range dirs {
-		name, path := parseDir(d)
-		absPath, err := filepath.Abs(path)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error resolving directory %q: %v\n", path, err)
-			os.Exit(1)
-		}
-		info, err := os.Stat(absPath)
-		if err != nil || !info.IsDir() {
-			fmt.Fprintf(os.Stderr, "Error: %s is not a valid directory\n", absPath)
-			os.Exit(1)
-		}
-		if name == "" {
-			name = filepath.Base(absPath)
-		}
-		vaults = append(vaults, server.Vault{Name: name, Path: absPath})
+	vaults, err := resolveVaults(dirs)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
 	}
 
 	srv := server.New(vaults, *title)
@@ -76,6 +63,27 @@ func main() {
 	if err := httpServer.ListenAndServe(); err != nil {
 		log.Fatalf("Server error: %v", err)
 	}
+}
+
+// resolveVaults converts dir flag values into validated Vault entries.
+func resolveVaults(dirs []string) ([]server.Vault, error) {
+	vaults := make([]server.Vault, 0, len(dirs))
+	for _, d := range dirs {
+		name, path := parseDir(d)
+		absPath, err := filepath.Abs(path)
+		if err != nil {
+			return nil, fmt.Errorf("error resolving directory %q: %v", path, err)
+		}
+		info, err := os.Stat(absPath)
+		if err != nil || !info.IsDir() {
+			return nil, fmt.Errorf("error: %s is not a valid directory", absPath)
+		}
+		if name == "" {
+			name = filepath.Base(absPath)
+		}
+		vaults = append(vaults, server.Vault{Name: name, Path: absPath})
+	}
+	return vaults, nil
 }
 
 // parseDir splits "name=/path" into (name, path). Plain paths return ("", path).

@@ -6,7 +6,6 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -96,45 +95,14 @@ func (s *Server) handleVaultRequest(w http.ResponseWriter, r *http.Request, vaul
 		return
 	}
 
-	info, err := os.Stat(fullPath)
-	if err != nil {
-		// For non-markdown resource requests (e.g. <img> tags), wait for
-		// the file to appear on disk. This handles cloud-synced vaults
-		// (iCloud, Dropbox, etc.) where files may not be immediately
-		// available. Only wait for resource fetches — navigation requests
-		// should fall through to wiki link resolution.
-		ext := strings.ToLower(filepath.Ext(fullPath))
-		if ext != "" && ext != ".md" && ext != ".markdown" && isResourceRequest(r) {
-			waitInfo, waitErr := waitForFile(r.Context(), fullPath, fileWaitTimeout)
-			if waitErr == nil {
-				info = waitInfo
-				err = nil
-			} else if waitErr == errFileWaitTimeout {
-				w.Header().Set("Retry-After", "5")
-				http.Error(w, "File is not yet available, please retry", http.StatusServiceUnavailable)
-				return
-			}
-		}
+	info, err := s.statOrWait(r, fullPath)
+	if err == errFileWaitTimeout {
+		w.Header().Set("Retry-After", "5")
+		http.Error(w, "File is not yet available, please retry", http.StatusServiceUnavailable)
+		return
 	}
 	if err != nil {
-		// Try appending .md extension
-		mdPath := fullPath + ".md"
-		if _, err2 := os.Stat(mdPath); err2 == nil {
-			s.serveMarkdown(w, r, vaultName, rootDir, mdPath, reqPath+".md")
-			return
-		}
-		// Obsidian-style wiki link resolution — only redirect if the file
-		// resolves to a different location.
-		cleanReq := strings.TrimPrefix(filepath.Clean(reqPath), "/")
-		if resolved := render.ResolveWikiTarget(rootDir, filepath.Base(fullPath)); resolved != "" && resolved != cleanReq {
-			http.Redirect(w, r, s.vaultPrefix(vaultName)+"/"+urlEncodePath(resolved), http.StatusFound)
-			return
-		}
-		if resolved := render.ResolveWikiTarget(rootDir, filepath.Base(mdPath)); resolved != "" && resolved != cleanReq+".md" {
-			http.Redirect(w, r, s.vaultPrefix(vaultName)+"/"+urlEncodePath(resolved), http.StatusFound)
-			return
-		}
-		http.NotFound(w, r)
+		s.resolveNotFound(w, r, vaultName, rootDir, fullPath, reqPath)
 		return
 	}
 
@@ -143,21 +111,64 @@ func (s *Server) handleVaultRequest(w http.ResponseWriter, r *http.Request, vaul
 		return
 	}
 
+	s.serveFile(w, r, vaultName, rootDir, fullPath, reqPath)
+}
+
+// statOrWait stats the file, waiting for cloud-synced resources if needed.
+func (s *Server) statOrWait(r *http.Request, fullPath string) (os.FileInfo, error) {
+	info, err := os.Stat(fullPath)
+	if err == nil {
+		return info, nil
+	}
+	ext := strings.ToLower(filepath.Ext(fullPath))
+	if ext != "" && ext != ".md" && ext != ".markdown" && isResourceRequest(r) {
+		waitInfo, waitErr := waitForFile(r.Context(), fullPath, fileWaitTimeout)
+		if waitErr == nil {
+			return waitInfo, nil
+		}
+		if waitErr == errFileWaitTimeout {
+			return nil, waitErr
+		}
+	}
+	return nil, err
+}
+
+// resolveNotFound handles requests for files that don't exist, trying .md
+// extension and wiki link resolution before returning 404.
+func (s *Server) resolveNotFound(w http.ResponseWriter, r *http.Request, vaultName, rootDir, fullPath, reqPath string) {
+	// Try appending .md extension
+	mdPath := fullPath + ".md"
+	if _, err := os.Stat(mdPath); err == nil {
+		s.serveMarkdown(w, r, vaultName, rootDir, mdPath, reqPath+".md")
+		return
+	}
+	// Obsidian-style wiki link resolution — only redirect if the file
+	// resolves to a different location.
+	cleanReq := strings.TrimPrefix(filepath.Clean(reqPath), "/")
+	if resolved := render.ResolveWikiTarget(rootDir, filepath.Base(fullPath)); resolved != "" && resolved != cleanReq {
+		http.Redirect(w, r, s.vaultPrefix(vaultName)+"/"+render.URLEncodePath(resolved), http.StatusFound)
+		return
+	}
+	if resolved := render.ResolveWikiTarget(rootDir, filepath.Base(mdPath)); resolved != "" && resolved != cleanReq+".md" {
+		http.Redirect(w, r, s.vaultPrefix(vaultName)+"/"+render.URLEncodePath(resolved), http.StatusFound)
+		return
+	}
+	http.NotFound(w, r)
+}
+
+// serveFile dispatches an existing file to the appropriate handler based on type.
+func (s *Server) serveFile(w http.ResponseWriter, r *http.Request, vaultName, rootDir, fullPath, reqPath string) {
 	ext := strings.ToLower(filepath.Ext(fullPath))
 	if ext == ".md" || ext == ".markdown" {
 		s.serveMarkdown(w, r, vaultName, rootDir, fullPath, reqPath)
 		return
 	}
 
-	// For image files, serve a viewer page on direct browser navigation,
-	// or raw bytes for <img> tag requests and programmatic access.
-	if imageExts[ext] && isNavigationRequest(r) {
+	if render.ImageExts[ext] && isNavigationRequest(r) {
 		s.serveImageViewer(w, r, vaultName, fullPath, reqPath)
 		return
 	}
 
-	// For Excalidraw files, serve a viewer page on direct browser navigation,
-	// or resolve to the shadow SVG/PNG for <img> tag requests.
 	if ext == ".excalidraw" {
 		if isNavigationRequest(r) {
 			s.serveExcalidrawViewer(w, r, vaultName, fullPath, reqPath)
@@ -167,10 +178,6 @@ func (s *Server) handleVaultRequest(w http.ResponseWriter, r *http.Request, vaul
 		return
 	}
 
-	// Serve files directly using http.ServeContent instead of http.ServeFile
-	// to avoid issues with http.ServeFile's path sanitization on r.URL.Path
-	// (containsDotDot checks and redirects) which can cause failed downloads
-	// for vault paths that contain encoded characters or special segments.
 	serveFileContent(w, r, fullPath)
 }
 
@@ -234,65 +241,9 @@ func (s *Server) serveDirectory(w http.ResponseWriter, r *http.Request, vaultNam
 		return
 	}
 
-	// Detect index.md or README.md to render after the file list.
-	var readmeHTML template.HTML
-	var skipFile string
-	for _, name := range []string{"index.md", "README.md"} {
-		mdPath := filepath.Join(dirPath, name)
-		if data, err := os.ReadFile(mdPath); err == nil {
-			result, err := render.Markdown(data, &render.RenderOptions{
-				VaultDir:  rootDir,
-				URLPrefix: s.vaultPrefix(vaultName),
-			})
-			if err == nil {
-				readmeHTML = template.HTML(result.HTML)
-				skipFile = name
-			}
-			break
-		}
-	}
-
-	var dirs, files []DirEntry
-	for _, e := range entries {
-		if strings.HasPrefix(e.Name(), ".") {
-			continue
-		}
-		if e.Name() == skipFile {
-			continue
-		}
-		info, err := e.Info()
-		if err != nil {
-			continue
-		}
-		entryPath := filepath.Join(s.vaultPrefix(vaultName), reqPath, e.Name())
-		entry := DirEntry{
-			Name:    e.Name(),
-			Path:    entryPath,
-			IsDir:   e.IsDir(),
-			Size:    formatSize(info.Size()),
-			ModTime: info.ModTime().Unix(),
-			ModFmt:  info.ModTime().Format(time.DateTime),
-		}
-		if e.IsDir() {
-			dirs = append(dirs, entry)
-		} else {
-			files = append(files, entry)
-		}
-	}
-
-	// Determine sort order from query parameter; default to "name".
-	sortBy := r.URL.Query().Get("sort")
-	if sortBy != "date" {
-		sortBy = "name"
-	}
-
-	if sortBy == "date" {
-		sort.Slice(dirs, func(i, j int) bool { return dirs[i].ModTime > dirs[j].ModTime })
-		sort.Slice(files, func(i, j int) bool { return files[i].ModTime > files[j].ModTime })
-	} else {
-		sort.Slice(dirs, func(i, j int) bool { return dirs[i].Name < dirs[j].Name })
-		sort.Slice(files, func(i, j int) bool { return files[i].Name < files[j].Name })
-	}
+	readmeHTML, skipFile := s.renderDirReadme(dirPath, rootDir, vaultName)
+	dirs, files := s.buildDirEntries(entries, skipFile, vaultName, reqPath)
+	sortBy := sortDirEntries(r, dirs, files)
 
 	dirName := filepath.Base(reqPath)
 	if reqPath == "/" || reqPath == "." {
@@ -314,6 +265,72 @@ func (s *Server) serveDirectory(w http.ResponseWriter, r *http.Request, vaultNam
 	if err != nil {
 		log.Printf("Template error: %v", err)
 	}
+}
+
+// renderDirReadme renders index.md or README.md if present, returning the HTML
+// and the filename to skip in directory listings.
+func (s *Server) renderDirReadme(dirPath, rootDir, vaultName string) (template.HTML, string) {
+	for _, name := range []string{"index.md", "README.md"} {
+		mdPath := filepath.Join(dirPath, name)
+		data, err := os.ReadFile(mdPath)
+		if err != nil {
+			continue
+		}
+		result, err := render.Markdown(data, &render.RenderOptions{
+			VaultDir:  rootDir,
+			URLPrefix: s.vaultPrefix(vaultName),
+		})
+		if err == nil {
+			return template.HTML(result.HTML), name
+		}
+		break
+	}
+	return "", ""
+}
+
+// buildDirEntries partitions directory entries into dirs and files, skipping
+// hidden files and the specified skipFile.
+func (s *Server) buildDirEntries(entries []os.DirEntry, skipFile, vaultName, reqPath string) ([]DirEntry, []DirEntry) {
+	var dirs, files []DirEntry
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), ".") || e.Name() == skipFile {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		entry := DirEntry{
+			Name:    e.Name(),
+			Path:    filepath.Join(s.vaultPrefix(vaultName), reqPath, e.Name()),
+			IsDir:   e.IsDir(),
+			Size:    formatSize(info.Size()),
+			ModTime: info.ModTime().Unix(),
+			ModFmt:  info.ModTime().Format(time.DateTime),
+		}
+		if e.IsDir() {
+			dirs = append(dirs, entry)
+		} else {
+			files = append(files, entry)
+		}
+	}
+	return dirs, files
+}
+
+// sortDirEntries sorts dirs and files by the sort query parameter (name or date).
+func sortDirEntries(r *http.Request, dirs, files []DirEntry) string {
+	sortBy := r.URL.Query().Get("sort")
+	if sortBy != "date" {
+		sortBy = "name"
+	}
+	if sortBy == "date" {
+		sort.Slice(dirs, func(i, j int) bool { return dirs[i].ModTime > dirs[j].ModTime })
+		sort.Slice(files, func(i, j int) bool { return files[i].ModTime > files[j].ModTime })
+	} else {
+		sort.Slice(dirs, func(i, j int) bool { return dirs[i].Name < dirs[j].Name })
+		sort.Slice(files, func(i, j int) bool { return files[i].Name < files[j].Name })
+	}
+	return sortBy
 }
 
 // Breadcrumb represents a navigation breadcrumb.
@@ -372,47 +389,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	for _, vault := range vaultsToSearch {
-		filepath.WalkDir(vault.Path, func(path string, d fs.DirEntry, err error) error {
-			if err != nil || d.IsDir() {
-				return nil
-			}
-			ext := strings.ToLower(filepath.Ext(path))
-			if ext != ".md" && ext != ".markdown" {
-				return nil
-			}
-			data, err := os.ReadFile(path)
-			if err != nil {
-				return nil
-			}
-			content := string(data)
-			if !strings.Contains(strings.ToLower(content), query) {
-				return nil
-			}
-
-			relPath, _ := filepath.Rel(vault.Path, path)
-			name := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
-			name = strings.ReplaceAll(name, "-", " ")
-
-			idx := strings.Index(strings.ToLower(content), query)
-			start := idx - 80
-			if start < 0 {
-				start = 0
-			}
-			end := idx + len(query) + 80
-			if end > len(content) {
-				end = len(content)
-			}
-			snippet := content[start:end]
-			snippet = strings.ReplaceAll(snippet, "\n", " ")
-
-			resultPath := s.vaultPrefix(vault.Name) + "/" + relPath
-			results = append(results, searchResult{
-				Name:    name,
-				Path:    resultPath,
-				Snippet: snippet,
-			})
-			return nil
-		})
+		results = s.searchVault(vault, query, results)
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -426,17 +403,57 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// searchVault walks a vault directory and appends matching results.
+func (s *Server) searchVault(vault Vault, query string, results []searchResult) []searchResult {
+	filepath.WalkDir(vault.Path, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil
+		}
+		ext := strings.ToLower(filepath.Ext(path))
+		if ext != ".md" && ext != ".markdown" {
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil
+		}
+		content := string(data)
+		if !strings.Contains(strings.ToLower(content), query) {
+			return nil
+		}
+
+		relPath, _ := filepath.Rel(vault.Path, path)
+		name := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
+		name = strings.ReplaceAll(name, "-", " ")
+
+		results = append(results, searchResult{
+			Name:    name,
+			Path:    s.vaultPrefix(vault.Name) + "/" + relPath,
+			Snippet: extractSnippet(content, query),
+		})
+		return nil
+	})
+	return results
+}
+
+// extractSnippet returns a text snippet around the first occurrence of query.
+func extractSnippet(content, query string) string {
+	idx := strings.Index(strings.ToLower(content), query)
+	start := idx - 80
+	if start < 0 {
+		start = 0
+	}
+	end := idx + len(query) + 80
+	if end > len(content) {
+		end = len(content)
+	}
+	return strings.ReplaceAll(content[start:end], "\n", " ")
+}
+
 type searchResult struct {
 	Name    string
 	Path    string
 	Snippet string
-}
-
-// imageExts lists file extensions treated as images for viewer page rendering.
-var imageExts = map[string]bool{
-	".png": true, ".jpg": true, ".jpeg": true, ".gif": true,
-	".svg": true, ".webp": true, ".bmp": true, ".ico": true,
-	".avif": true, ".apng": true, ".tiff": true, ".tif": true,
 }
 
 // isResourceRequest returns true when the request originates from a resource
@@ -541,15 +558,6 @@ func serveFileContent(w http.ResponseWriter, r *http.Request, filePath string) {
 	}
 
 	http.ServeContent(w, r, info.Name(), info.ModTime(), f)
-}
-
-// urlEncodePath URL-encodes each segment of a slash-separated path.
-func urlEncodePath(path string) string {
-	segments := strings.Split(path, "/")
-	for i, p := range segments {
-		segments[i] = url.PathEscape(p)
-	}
-	return strings.Join(segments, "/")
 }
 
 func formatSize(size int64) string {
