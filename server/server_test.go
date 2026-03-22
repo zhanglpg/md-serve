@@ -1338,3 +1338,66 @@ func TestSingleVault_WikiLinkResolvesPath(t *testing.T) {
 		t.Errorf("expected wiki link to resolve to /notes/Deep%%20Page.md, got body:\n%s", body)
 	}
 }
+
+func TestServeMarkdown_PermissionError(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("skipping permission test when running as root")
+	}
+	t.Parallel()
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "locked.md"), []byte("# Secret"), 0000)
+
+	srv := newSingleVault(dir, "Test")
+	req := httptest.NewRequest("GET", "/locked.md", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("expected 500, got %d", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "Error reading file") {
+		t.Errorf("expected 'Error reading file' in body, got: %s", w.Body.String())
+	}
+}
+
+func TestServeExcalidrawViewer_PermissionError(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("skipping permission test when running as root")
+	}
+	t.Parallel()
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "drawing.excalidraw"), []byte(`{}`), 0000)
+
+	srv := newSingleVault(dir, "Test")
+	req := httptest.NewRequest("GET", "/drawing.excalidraw", nil)
+	req.Header.Set("Sec-Fetch-Dest", "document")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("expected 500, got %d", w.Code)
+	}
+}
+
+func TestServeDirectory_ReadDirError(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("skipping permission test when running as root")
+	}
+	t.Parallel()
+	dir := t.TempDir()
+	locked := filepath.Join(dir, "noaccess")
+	os.Mkdir(locked, 0000)
+	t.Cleanup(func() { os.Chmod(locked, 0755) }) // restore so TempDir cleanup works
+
+	srv := newSingleVault(dir, "Test")
+	req := httptest.NewRequest("GET", "/noaccess", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("expected 500, got %d", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "Error reading directory") {
+		t.Errorf("expected 'Error reading directory' in body, got: %s", w.Body.String())
+	}
+}

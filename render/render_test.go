@@ -928,3 +928,42 @@ func TestResolveWikiTarget(t *testing.T) {
 		})
 	}
 }
+
+func TestAltBasename(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"my file.md", "my-file.md"},
+		{"my-file.md", "my file.md"},
+		{"myfile.md", ""},
+		{"a b-c.md", "a-b-c.md"}, // space found first
+	}
+	for _, tc := range tests {
+		t.Run(tc.input, func(t *testing.T) {
+			if got := altBasename(tc.input); got != tc.want {
+				t.Errorf("altBasename(%q) = %q, want %q", tc.input, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestFindExcalidrawShadow_NoShadow(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "drawing.excalidraw"), []byte("{}"), 0644)
+
+	got := findExcalidrawShadow(dir, "drawing.excalidraw")
+	if got != "" {
+		t.Errorf("findExcalidrawShadow() = %q, want empty string", got)
+	}
+}
+
+func TestFindExcalidrawShadow_EmptyVaultDir(t *testing.T) {
+	t.Parallel()
+	got := findExcalidrawShadow("", "drawing.excalidraw")
+	if got != "" {
+		t.Errorf("findExcalidrawShadow() = %q, want empty string", got)
+	}
+}
