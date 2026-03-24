@@ -65,23 +65,32 @@ func main() {
 	}
 }
 
+// resolveOneVault validates a single dir flag value into a Vault entry.
+func resolveOneVault(d string) (server.Vault, error) {
+	name, path := parseDir(d)
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return server.Vault{}, fmt.Errorf("error resolving directory %q: %v", path, err)
+	}
+	info, err := os.Stat(absPath)
+	if err != nil || !info.IsDir() {
+		return server.Vault{}, fmt.Errorf("error: %s is not a valid directory", absPath)
+	}
+	if name == "" {
+		name = filepath.Base(absPath)
+	}
+	return server.Vault{Name: name, Path: absPath}, nil
+}
+
 // resolveVaults converts dir flag values into validated Vault entries.
 func resolveVaults(dirs []string) ([]server.Vault, error) {
 	vaults := make([]server.Vault, 0, len(dirs))
 	for _, d := range dirs {
-		name, path := parseDir(d)
-		absPath, err := filepath.Abs(path)
+		v, err := resolveOneVault(d)
 		if err != nil {
-			return nil, fmt.Errorf("error resolving directory %q: %v", path, err)
+			return nil, err
 		}
-		info, err := os.Stat(absPath)
-		if err != nil || !info.IsDir() {
-			return nil, fmt.Errorf("error: %s is not a valid directory", absPath)
-		}
-		if name == "" {
-			name = filepath.Base(absPath)
-		}
-		vaults = append(vaults, server.Vault{Name: name, Path: absPath})
+		vaults = append(vaults, v)
 	}
 	return vaults, nil
 }

@@ -114,21 +114,28 @@ func (s *Server) handleVaultRequest(w http.ResponseWriter, r *http.Request, vaul
 	s.serveFile(w, r, vaultName, rootDir, fullPath, reqPath)
 }
 
+// shouldWaitForFile reports whether a missing file should be waited on
+// (non-markdown resource requests that may be cloud-syncing).
+func shouldWaitForFile(r *http.Request, fullPath string) bool {
+	ext := strings.ToLower(filepath.Ext(fullPath))
+	return ext != "" && ext != ".md" && ext != ".markdown" && isResourceRequest(r)
+}
+
 // statOrWait stats the file, waiting for cloud-synced resources if needed.
 func (s *Server) statOrWait(r *http.Request, fullPath string) (os.FileInfo, error) {
 	info, err := os.Stat(fullPath)
 	if err == nil {
 		return info, nil
 	}
-	ext := strings.ToLower(filepath.Ext(fullPath))
-	if ext != "" && ext != ".md" && ext != ".markdown" && isResourceRequest(r) {
-		waitInfo, waitErr := waitForFile(r.Context(), fullPath, fileWaitTimeout)
-		if waitErr == nil {
-			return waitInfo, nil
-		}
-		if waitErr == errFileWaitTimeout {
-			return nil, waitErr
-		}
+	if !shouldWaitForFile(r, fullPath) {
+		return nil, err
+	}
+	waitInfo, waitErr := waitForFile(r.Context(), fullPath, fileWaitTimeout)
+	if waitErr == nil {
+		return waitInfo, nil
+	}
+	if waitErr == errFileWaitTimeout {
+		return nil, waitErr
 	}
 	return nil, err
 }
@@ -156,6 +163,15 @@ func (s *Server) resolveNotFound(w http.ResponseWriter, r *http.Request, vaultNa
 	http.NotFound(w, r)
 }
 
+// serveExcalidraw dispatches an excalidraw file to the viewer or shadow handler.
+func (s *Server) serveExcalidraw(w http.ResponseWriter, r *http.Request, vaultName, fullPath, reqPath string) {
+	if isNavigationRequest(r) {
+		s.serveExcalidrawViewer(w, r, vaultName, fullPath, reqPath)
+		return
+	}
+	s.serveExcalidrawShadow(w, r, fullPath)
+}
+
 // serveFile dispatches an existing file to the appropriate handler based on type.
 func (s *Server) serveFile(w http.ResponseWriter, r *http.Request, vaultName, rootDir, fullPath, reqPath string) {
 	ext := strings.ToLower(filepath.Ext(fullPath))
@@ -163,21 +179,14 @@ func (s *Server) serveFile(w http.ResponseWriter, r *http.Request, vaultName, ro
 		s.serveMarkdown(w, r, vaultName, rootDir, fullPath, reqPath)
 		return
 	}
-
 	if render.ImageExts[ext] && isNavigationRequest(r) {
 		s.serveImageViewer(w, r, vaultName, fullPath, reqPath)
 		return
 	}
-
 	if ext == ".excalidraw" {
-		if isNavigationRequest(r) {
-			s.serveExcalidrawViewer(w, r, vaultName, fullPath, reqPath)
-			return
-		}
-		s.serveExcalidrawShadow(w, r, fullPath)
+		s.serveExcalidraw(w, r, vaultName, fullPath, reqPath)
 		return
 	}
-
 	serveFileContent(w, r, fullPath)
 }
 
@@ -267,47 +276,67 @@ func (s *Server) serveDirectory(w http.ResponseWriter, r *http.Request, vaultNam
 	}
 }
 
+// readmeNames lists candidate filenames for directory readmes, in priority order.
+var readmeNames = []string{"index.md", "README.md"}
+
+// tryRenderReadme attempts to read and render a single readme file.
+func (s *Server) tryRenderReadme(mdPath, rootDir, vaultName string) (template.HTML, bool) {
+	data, err := os.ReadFile(mdPath)
+	if err != nil {
+		return "", false
+	}
+	result, err := render.Markdown(data, &render.RenderOptions{
+		VaultDir:  rootDir,
+		URLPrefix: s.vaultPrefix(vaultName),
+	})
+	if err != nil {
+		return "", false
+	}
+	return template.HTML(result.HTML), true
+}
+
 // renderDirReadme renders index.md or README.md if present, returning the HTML
 // and the filename to skip in directory listings.
 func (s *Server) renderDirReadme(dirPath, rootDir, vaultName string) (template.HTML, string) {
-	for _, name := range []string{"index.md", "README.md"} {
-		mdPath := filepath.Join(dirPath, name)
-		data, err := os.ReadFile(mdPath)
-		if err != nil {
-			continue
+	for _, name := range readmeNames {
+		if html, ok := s.tryRenderReadme(filepath.Join(dirPath, name), rootDir, vaultName); ok {
+			return html, name
 		}
-		result, err := render.Markdown(data, &render.RenderOptions{
-			VaultDir:  rootDir,
-			URLPrefix: s.vaultPrefix(vaultName),
-		})
-		if err == nil {
-			return template.HTML(result.HTML), name
-		}
-		break
 	}
 	return "", ""
+}
+
+// newDirEntry creates a DirEntry from an os.DirEntry with its file info.
+func newDirEntry(e os.DirEntry, info os.FileInfo, pathPrefix, reqPath string) DirEntry {
+	return DirEntry{
+		Name:    e.Name(),
+		Path:    filepath.Join(pathPrefix, reqPath, e.Name()),
+		IsDir:   e.IsDir(),
+		Size:    formatSize(info.Size()),
+		ModTime: info.ModTime().Unix(),
+		ModFmt:  info.ModTime().Format(time.DateTime),
+	}
+}
+
+// isHiddenOrSkipped reports whether the entry should be excluded from listings.
+func isHiddenOrSkipped(name, skipFile string) bool {
+	return strings.HasPrefix(name, ".") || name == skipFile
 }
 
 // buildDirEntries partitions directory entries into dirs and files, skipping
 // hidden files and the specified skipFile.
 func (s *Server) buildDirEntries(entries []os.DirEntry, skipFile, vaultName, reqPath string) ([]DirEntry, []DirEntry) {
 	var dirs, files []DirEntry
+	prefix := s.vaultPrefix(vaultName)
 	for _, e := range entries {
-		if strings.HasPrefix(e.Name(), ".") || e.Name() == skipFile {
+		if isHiddenOrSkipped(e.Name(), skipFile) {
 			continue
 		}
 		info, err := e.Info()
 		if err != nil {
 			continue
 		}
-		entry := DirEntry{
-			Name:    e.Name(),
-			Path:    filepath.Join(s.vaultPrefix(vaultName), reqPath, e.Name()),
-			IsDir:   e.IsDir(),
-			Size:    formatSize(info.Size()),
-			ModTime: info.ModTime().Unix(),
-			ModFmt:  info.ModTime().Format(time.DateTime),
-		}
+		entry := newDirEntry(e, info, prefix, reqPath)
 		if e.IsDir() {
 			dirs = append(dirs, entry)
 		} else {
@@ -403,32 +432,42 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// isMarkdownFile reports whether the path has a markdown file extension.
+func isMarkdownFile(path string) bool {
+	ext := strings.ToLower(filepath.Ext(path))
+	return ext == ".md" || ext == ".markdown"
+}
+
+// matchFileContent reads the file and returns its content if it contains the query.
+func matchFileContent(path, query string) (string, bool) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", false
+	}
+	content := string(data)
+	if !strings.Contains(strings.ToLower(content), query) {
+		return "", false
+	}
+	return content, true
+}
+
 // searchVault walks a vault directory and appends matching results.
 func (s *Server) searchVault(vault Vault, query string, results []searchResult) []searchResult {
+	prefix := s.vaultPrefix(vault.Name)
 	filepath.WalkDir(vault.Path, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
+		if err != nil || d.IsDir() || !isMarkdownFile(path) {
 			return nil
 		}
-		ext := strings.ToLower(filepath.Ext(path))
-		if ext != ".md" && ext != ".markdown" {
+		content, ok := matchFileContent(path, query)
+		if !ok {
 			return nil
 		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return nil
-		}
-		content := string(data)
-		if !strings.Contains(strings.ToLower(content), query) {
-			return nil
-		}
-
 		relPath, _ := filepath.Rel(vault.Path, path)
 		name := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
 		name = strings.ReplaceAll(name, "-", " ")
-
 		results = append(results, searchResult{
 			Name:    name,
-			Path:    s.vaultPrefix(vault.Name) + "/" + relPath,
+			Path:    prefix + "/" + relPath,
 			Snippet: extractSnippet(content, query),
 		})
 		return nil

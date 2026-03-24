@@ -211,27 +211,40 @@ func renderWikilink(parts []string, vaultDir, prefix string) string {
 // When the direct path check fails, it falls back to a vault-wide search
 // using resolveWikiTarget, matching Obsidian's behavior where wiki links
 // don't include relative paths.
-func findExcalidrawShadow(vaultDir, filePath string) string {
-	if vaultDir == "" {
-		return ""
-	}
-	absBase := filepath.Join(vaultDir, filepath.Clean(filePath))
-	for _, ext := range []string{".svg", ".png"} {
+// shadowExts lists the file extensions for Excalidraw shadow files.
+var shadowExts = []string{".svg", ".png"}
+
+// findShadowDirect checks for a shadow file adjacent to the excalidraw file.
+func findShadowDirect(vaultDir, absBase string) string {
+	for _, ext := range shadowExts {
 		candidate := absBase + ext
 		if fileExists(candidate) {
 			rel, _ := filepath.Rel(vaultDir, candidate)
 			return rel
 		}
 	}
-	// Fallback: search the whole vault for the shadow file by basename,
-	// reusing resolveWikiTarget which handles vault-wide resolution.
-	baseName := filepath.Base(filePath)
-	for _, ext := range []string{".svg", ".png"} {
+	return ""
+}
+
+// findShadowBySearch does a vault-wide search for a shadow file by basename.
+func findShadowBySearch(vaultDir, baseName string) string {
+	for _, ext := range shadowExts {
 		if resolved := ResolveWikiTarget(vaultDir, baseName+ext); resolved != "" {
 			return resolved
 		}
 	}
 	return ""
+}
+
+func findExcalidrawShadow(vaultDir, filePath string) string {
+	if vaultDir == "" {
+		return ""
+	}
+	absBase := filepath.Join(vaultDir, filepath.Clean(filePath))
+	if found := findShadowDirect(vaultDir, absBase); found != "" {
+		return found
+	}
+	return findShadowBySearch(vaultDir, filepath.Base(filePath))
 }
 
 // resolveWikiHref resolves a wiki link target to the best available path.
@@ -314,6 +327,11 @@ func altBasename(name string) string {
 	return ""
 }
 
+// basenameMatches reports whether name matches the target or its space/hyphen alternative.
+func basenameMatches(name, target, alt string) bool {
+	return name == target || (alt != "" && name == alt)
+}
+
 // searchVaultByBasename walks the vault looking for a file matching by basename
 // (case-insensitive, with space/hyphen interoperability).
 func searchVaultByBasename(vaultDir, searchName string) string {
@@ -325,10 +343,8 @@ func searchVaultByBasename(vaultDir, searchName string) string {
 		if err != nil || d.IsDir() {
 			return nil
 		}
-		name := strings.ToLower(filepath.Base(path))
-		if name == basename || (alt != "" && name == alt) {
-			rel, err := filepath.Rel(vaultDir, path)
-			if err == nil {
+		if basenameMatches(strings.ToLower(filepath.Base(path)), basename, alt) {
+			if rel, relErr := filepath.Rel(vaultDir, path); relErr == nil {
 				match = rel
 				return filepath.SkipAll
 			}
