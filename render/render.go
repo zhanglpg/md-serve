@@ -2,18 +2,21 @@ package render
 
 import (
 	"bytes"
+	"fmt"
 	"io/fs"
 	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/yuin/goldmark"
 	highlighting "github.com/yuin/goldmark-highlighting/v2"
 	"github.com/yuin/goldmark/extension"
 	"github.com/yuin/goldmark/parser"
 	"github.com/yuin/goldmark/renderer/html"
+	"gopkg.in/yaml.v3"
 )
 
 // TOCEntry represents a heading in the table of contents.
@@ -37,12 +40,159 @@ type RenderOptions struct {
 	URLPrefix string
 }
 
+// frontmatterRe matches YAML frontmatter delimited by --- at the start of the file.
+var frontmatterRe = regexp.MustCompile(`(?s)\A---\r?\n(.+?)\r?\n---\r?\n?`)
+
+// parseFrontmatter extracts YAML frontmatter from the source and returns the
+// parsed properties and the remaining markdown body. If no valid frontmatter
+// is found, properties is nil and body equals source.
+func parseFrontmatter(source []byte) (properties map[string]interface{}, body []byte) {
+	m := frontmatterRe.FindSubmatch(source)
+	if m == nil {
+		return nil, source
+	}
+	var props map[string]interface{}
+	if err := yaml.Unmarshal(m[1], &props); err != nil {
+		return nil, source
+	}
+	body = source[len(m[0]):]
+	return props, body
+}
+
+// renderFrontmatterHTML renders parsed frontmatter properties as a styled HTML section.
+func renderFrontmatterHTML(props map[string]interface{}) string {
+	if len(props) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString(`<section class="frontmatter-properties">`)
+	b.WriteString("\n")
+	for _, key := range sortedKeys(props) {
+		val := props[key]
+		b.WriteString(`<div class="frontmatter-property">`)
+		b.WriteString(`<span class="frontmatter-key">` + htmlEscaper.Replace(key) + `</span>`)
+		b.WriteString(`<span class="frontmatter-value">`)
+		b.WriteString(renderPropertyValue(key, val))
+		b.WriteString(`</span>`)
+		b.WriteString("</div>\n")
+	}
+	b.WriteString("</section>\n")
+	return b.String()
+}
+
+// sortedKeys returns map keys in sorted order for deterministic output.
+func sortedKeys(m map[string]interface{}) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	// Sort alphabetically
+	for i := 0; i < len(keys); i++ {
+		for j := i + 1; j < len(keys); j++ {
+			if keys[i] > keys[j] {
+				keys[i], keys[j] = keys[j], keys[i]
+			}
+		}
+	}
+	return keys
+}
+
+// renderPropertyValue renders a single frontmatter property value as HTML.
+func renderPropertyValue(key string, val interface{}) string {
+	if val == nil {
+		return `<span class="frontmatter-empty">—</span>`
+	}
+	switch v := val.(type) {
+	case bool:
+		if v {
+			return `<input type="checkbox" checked disabled>`
+		}
+		return `<input type="checkbox" disabled>`
+	case []interface{}:
+		return renderListValue(key, v)
+	case string:
+		return renderStringValue(key, v)
+	case int:
+		return htmlEscaper.Replace(fmt.Sprintf("%d", v))
+	case float64:
+		s := fmt.Sprintf("%g", v)
+		return htmlEscaper.Replace(s)
+	case time.Time:
+		return renderTimeValue(v)
+	default:
+		return htmlEscaper.Replace(fmt.Sprintf("%v", v))
+	}
+}
+
+// renderListValue renders a list property as a series of tags/pills.
+func renderListValue(key string, items []interface{}) string {
+	if len(items) == 0 {
+		return `<span class="frontmatter-empty">—</span>`
+	}
+	var b strings.Builder
+	b.WriteString(`<span class="frontmatter-list">`)
+	for _, item := range items {
+		s := fmt.Sprintf("%v", item)
+		cssClass := "frontmatter-pill"
+		display := htmlEscaper.Replace(s)
+		if key == "tags" {
+			cssClass = "frontmatter-tag"
+			if !strings.HasPrefix(s, "#") {
+				display = "#" + display
+			}
+		} else if key == "aliases" {
+			cssClass = "frontmatter-alias"
+		} else if key == "cssclasses" || key == "cssclass" {
+			cssClass = "frontmatter-cssclass"
+		}
+		b.WriteString(`<span class="` + cssClass + `">` + display + `</span>`)
+	}
+	b.WriteString(`</span>`)
+	return b.String()
+}
+
+// renderStringValue renders a string property, detecting dates.
+func renderStringValue(key string, s string) string {
+	escaped := htmlEscaper.Replace(s)
+	// Detect date/datetime patterns
+	if isDateValue(s) {
+		return `<time class="frontmatter-date">` + escaped + `</time>`
+	}
+	// Render single tag value with # prefix
+	if key == "tags" && !strings.HasPrefix(s, "#") {
+		return `<span class="frontmatter-tag">#` + escaped + `</span>`
+	}
+	return escaped
+}
+
+// renderTimeValue formats a time.Time value (parsed by YAML) as an HTML <time> element.
+func renderTimeValue(t time.Time) string {
+	var display string
+	if t.Hour() == 0 && t.Minute() == 0 && t.Second() == 0 {
+		display = t.Format("2006-01-02")
+	} else {
+		display = t.Format("2006-01-02 15:04")
+	}
+	return `<time class="frontmatter-date">` + display + `</time>`
+}
+
+// dateRe matches ISO date (YYYY-MM-DD) and datetime (YYYY-MM-DDTHH:MM or YYYY-MM-DD HH:MM) formats.
+var dateRe = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}([ T]\d{2}:\d{2}(:\d{2})?)?$`)
+
+// isDateValue returns true if the string looks like a date or datetime.
+func isDateValue(s string) bool {
+	return dateRe.MatchString(s)
+}
+
 // Markdown converts markdown source bytes to an HTML Result with TOC.
 // If opts is provided, wiki links are resolved by searching the vault directory.
 func Markdown(source []byte, opts *RenderOptions) (*Result, error) {
+	// Extract frontmatter before processing
+	props, body := parseFrontmatter(source)
+
 	// Pre-process Obsidian-specific syntax before goldmark parsing.
 	// Embeds are handled here so goldmark does not interfere with ![[...]] syntax.
-	processed := preprocessObsidian(source, opts)
+	processed := preprocessObsidian(body, opts)
 
 	md := goldmark.New(
 		goldmark.WithExtensions(
@@ -67,11 +217,16 @@ func Markdown(source []byte, opts *RenderOptions) (*Result, error) {
 		return nil, err
 	}
 
-	// Extract TOC from source
-	toc := extractTOC(source)
+	// Extract TOC from body (without frontmatter)
+	toc := extractTOC(body)
 
 	// Post-process for remaining Obsidian features
 	output := postprocessObsidian(buf.String(), opts)
+
+	// Prepend rendered frontmatter properties
+	if props != nil {
+		output = renderFrontmatterHTML(props) + output
+	}
 
 	return &Result{
 		HTML: output,

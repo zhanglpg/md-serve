@@ -967,3 +967,395 @@ func TestFindExcalidrawShadow_EmptyVaultDir(t *testing.T) {
 		t.Errorf("findExcalidrawShadow() = %q, want empty string", got)
 	}
 }
+
+// --- Frontmatter tests ---
+
+func TestParseFrontmatter_Valid(t *testing.T) {
+	t.Parallel()
+	input := []byte("---\ntitle: My Note\ntags:\n  - go\n  - test\n---\n# Hello")
+	props, body := parseFrontmatter(input)
+	if props == nil {
+		t.Fatal("expected frontmatter to be parsed")
+	}
+	if props["title"] != "My Note" {
+		t.Errorf("title = %v, want 'My Note'", props["title"])
+	}
+	tags, ok := props["tags"].([]interface{})
+	if !ok || len(tags) != 2 {
+		t.Fatalf("tags = %v, want [go test]", props["tags"])
+	}
+	if string(body) != "# Hello" {
+		t.Errorf("body = %q, want '# Hello'", body)
+	}
+}
+
+func TestParseFrontmatter_NoFrontmatter(t *testing.T) {
+	t.Parallel()
+	input := []byte("# Just a heading\nSome text")
+	props, body := parseFrontmatter(input)
+	if props != nil {
+		t.Error("expected nil properties for content without frontmatter")
+	}
+	if string(body) != string(input) {
+		t.Error("body should equal original input when no frontmatter")
+	}
+}
+
+func TestParseFrontmatter_InvalidYAML(t *testing.T) {
+	t.Parallel()
+	input := []byte("---\n: invalid: yaml: [[\n---\n# Hello")
+	props, body := parseFrontmatter(input)
+	if props != nil {
+		t.Error("expected nil properties for invalid YAML")
+	}
+	if string(body) != string(input) {
+		t.Error("body should equal original input on parse failure")
+	}
+}
+
+func TestParseFrontmatter_EmptyFrontmatter(t *testing.T) {
+	t.Parallel()
+	input := []byte("---\n---\n# Hello")
+	props, body := parseFrontmatter(input)
+	// Empty YAML produces nil map
+	if props != nil {
+		t.Logf("props = %v (empty frontmatter may produce nil or empty map)", props)
+	}
+	if !strings.Contains(string(body), "# Hello") {
+		t.Errorf("body = %q, want to contain '# Hello'", body)
+	}
+}
+
+func TestParseFrontmatter_NotAtStart(t *testing.T) {
+	t.Parallel()
+	input := []byte("Some text\n---\ntitle: Not frontmatter\n---\n")
+	props, body := parseFrontmatter(input)
+	if props != nil {
+		t.Error("frontmatter not at start of file should not be parsed")
+	}
+	if string(body) != string(input) {
+		t.Error("body should equal original input")
+	}
+}
+
+func TestRenderFrontmatterHTML_TextProperty(t *testing.T) {
+	t.Parallel()
+	props := map[string]interface{}{"title": "My Note"}
+	html := renderFrontmatterHTML(props)
+	if !strings.Contains(html, `class="frontmatter-properties"`) {
+		t.Error("expected frontmatter-properties wrapper")
+	}
+	if !strings.Contains(html, `class="frontmatter-key"`) {
+		t.Error("expected frontmatter-key element")
+	}
+	if !strings.Contains(html, "title") {
+		t.Error("expected key name 'title'")
+	}
+	if !strings.Contains(html, "My Note") {
+		t.Error("expected value 'My Note'")
+	}
+}
+
+func TestRenderFrontmatterHTML_BooleanProperty(t *testing.T) {
+	t.Parallel()
+	props := map[string]interface{}{"draft": true, "publish": false}
+	html := renderFrontmatterHTML(props)
+	if !strings.Contains(html, `checked disabled`) {
+		t.Error("expected checked checkbox for true value")
+	}
+	if !strings.Contains(html, `<input type="checkbox" disabled>`) {
+		t.Error("expected unchecked checkbox for false value")
+	}
+}
+
+func TestRenderFrontmatterHTML_TagsList(t *testing.T) {
+	t.Parallel()
+	props := map[string]interface{}{
+		"tags": []interface{}{"golang", "testing"},
+	}
+	html := renderFrontmatterHTML(props)
+	if !strings.Contains(html, `class="frontmatter-tag"`) {
+		t.Error("expected frontmatter-tag class for tags")
+	}
+	if !strings.Contains(html, "#golang") {
+		t.Error("expected '#golang' tag with hash prefix")
+	}
+	if !strings.Contains(html, "#testing") {
+		t.Error("expected '#testing' tag with hash prefix")
+	}
+}
+
+func TestRenderFrontmatterHTML_TagsSingleString(t *testing.T) {
+	t.Parallel()
+	props := map[string]interface{}{
+		"tags": "solo-tag",
+	}
+	html := renderFrontmatterHTML(props)
+	if !strings.Contains(html, `class="frontmatter-tag"`) {
+		t.Error("expected frontmatter-tag class")
+	}
+	if !strings.Contains(html, "#solo-tag") {
+		t.Error("expected '#solo-tag' with hash prefix")
+	}
+}
+
+func TestRenderFrontmatterHTML_AliasesList(t *testing.T) {
+	t.Parallel()
+	props := map[string]interface{}{
+		"aliases": []interface{}{"Alt Name", "Other Name"},
+	}
+	html := renderFrontmatterHTML(props)
+	if !strings.Contains(html, `class="frontmatter-alias"`) {
+		t.Error("expected frontmatter-alias class for aliases")
+	}
+	if !strings.Contains(html, "Alt Name") {
+		t.Error("expected alias value")
+	}
+}
+
+func TestRenderFrontmatterHTML_CSSClasses(t *testing.T) {
+	t.Parallel()
+	props := map[string]interface{}{
+		"cssclasses": []interface{}{"wide-page", "no-toc"},
+	}
+	html := renderFrontmatterHTML(props)
+	if !strings.Contains(html, `class="frontmatter-cssclass"`) {
+		t.Error("expected frontmatter-cssclass class")
+	}
+	if !strings.Contains(html, "wide-page") {
+		t.Error("expected cssclass value")
+	}
+}
+
+func TestRenderFrontmatterHTML_DateProperty(t *testing.T) {
+	t.Parallel()
+	props := map[string]interface{}{"date": "2024-01-15"}
+	html := renderFrontmatterHTML(props)
+	if !strings.Contains(html, `<time class="frontmatter-date">`) {
+		t.Error("expected <time> element for date value")
+	}
+	if !strings.Contains(html, "2024-01-15") {
+		t.Error("expected date value")
+	}
+}
+
+func TestRenderFrontmatterHTML_DatetimeProperty(t *testing.T) {
+	t.Parallel()
+	props := map[string]interface{}{"created": "2024-01-15T10:30"}
+	html := renderFrontmatterHTML(props)
+	if !strings.Contains(html, `<time class="frontmatter-date">`) {
+		t.Error("expected <time> element for datetime value")
+	}
+	if !strings.Contains(html, "2024-01-15T10:30") {
+		t.Error("expected datetime value")
+	}
+}
+
+func TestRenderFrontmatterHTML_DatetimeWithSpace(t *testing.T) {
+	t.Parallel()
+	props := map[string]interface{}{"created": "2024-01-15 10:30"}
+	html := renderFrontmatterHTML(props)
+	if !strings.Contains(html, `<time class="frontmatter-date">`) {
+		t.Error("expected <time> element for datetime with space separator")
+	}
+}
+
+func TestRenderFrontmatterHTML_NumberProperty(t *testing.T) {
+	t.Parallel()
+	props := map[string]interface{}{"rating": 4.5}
+	html := renderFrontmatterHTML(props)
+	if !strings.Contains(html, "4.5") {
+		t.Error("expected number value '4.5'")
+	}
+}
+
+func TestRenderFrontmatterHTML_IntegerProperty(t *testing.T) {
+	t.Parallel()
+	props := map[string]interface{}{"count": 42}
+	html := renderFrontmatterHTML(props)
+	if !strings.Contains(html, "42") {
+		t.Error("expected integer value '42'")
+	}
+}
+
+func TestRenderFrontmatterHTML_NilValue(t *testing.T) {
+	t.Parallel()
+	props := map[string]interface{}{"empty": nil}
+	html := renderFrontmatterHTML(props)
+	if !strings.Contains(html, `class="frontmatter-empty"`) {
+		t.Error("expected frontmatter-empty class for nil value")
+	}
+	if !strings.Contains(html, "—") {
+		t.Error("expected em dash for nil value")
+	}
+}
+
+func TestRenderFrontmatterHTML_EmptyList(t *testing.T) {
+	t.Parallel()
+	props := map[string]interface{}{"items": []interface{}{}}
+	html := renderFrontmatterHTML(props)
+	if !strings.Contains(html, `class="frontmatter-empty"`) {
+		t.Error("expected frontmatter-empty for empty list")
+	}
+}
+
+func TestRenderFrontmatterHTML_HTMLEscaping(t *testing.T) {
+	t.Parallel()
+	props := map[string]interface{}{"title": `<script>alert("xss")</script>`}
+	html := renderFrontmatterHTML(props)
+	if strings.Contains(html, "<script>") {
+		t.Error("HTML in property values must be escaped")
+	}
+	if !strings.Contains(html, "&lt;script&gt;") {
+		t.Error("expected escaped HTML entities")
+	}
+}
+
+func TestRenderFrontmatterHTML_SortedKeys(t *testing.T) {
+	t.Parallel()
+	props := map[string]interface{}{
+		"zebra": "z",
+		"alpha": "a",
+		"middle": "m",
+	}
+	html := renderFrontmatterHTML(props)
+	alphaIdx := strings.Index(html, "alpha")
+	middleIdx := strings.Index(html, "middle")
+	zebraIdx := strings.Index(html, "zebra")
+	if alphaIdx > middleIdx || middleIdx > zebraIdx {
+		t.Error("expected keys to appear in alphabetical order")
+	}
+}
+
+func TestMarkdown_FrontmatterIntegration(t *testing.T) {
+	t.Parallel()
+	input := []byte("---\ntitle: Test Page\ntags:\n  - go\n  - markdown\ndraft: true\ndate: 2024-03-15\n---\n# Hello World\n\nContent here.")
+	result, err := Markdown(input, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Frontmatter rendered
+	if !strings.Contains(result.HTML, `class="frontmatter-properties"`) {
+		t.Error("expected frontmatter properties section in output")
+	}
+	if !strings.Contains(result.HTML, "Test Page") {
+		t.Error("expected title property value")
+	}
+	if !strings.Contains(result.HTML, "#go") {
+		t.Error("expected tag with hash prefix")
+	}
+	if !strings.Contains(result.HTML, `checked disabled`) {
+		t.Error("expected checked checkbox for draft: true")
+	}
+	if !strings.Contains(result.HTML, `<time class="frontmatter-date">`) {
+		t.Error("expected date rendered as <time>")
+	}
+	// Body rendered
+	if !strings.Contains(result.HTML, "<h1") {
+		t.Error("expected body heading to be rendered")
+	}
+	if !strings.Contains(result.HTML, "Content here.") {
+		t.Error("expected body content")
+	}
+	// Frontmatter should NOT appear as raw text in body
+	if strings.Contains(result.HTML, "---\ntitle:") {
+		t.Error("raw frontmatter should be stripped from output")
+	}
+}
+
+func TestMarkdown_FrontmatterStrippedFromTOC(t *testing.T) {
+	t.Parallel()
+	input := []byte("---\ntitle: My Page\n---\n# First Heading\n## Second Heading")
+	result, err := Markdown(input, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.TOC) != 2 {
+		t.Fatalf("expected 2 TOC entries, got %d", len(result.TOC))
+	}
+	if result.TOC[0].Title != "First Heading" {
+		t.Errorf("first TOC entry = %q, want 'First Heading'", result.TOC[0].Title)
+	}
+}
+
+func TestMarkdown_NoFrontmatter(t *testing.T) {
+	t.Parallel()
+	input := []byte("# No Frontmatter\n\nJust content.")
+	result, err := Markdown(input, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if strings.Contains(result.HTML, "frontmatter-properties") {
+		t.Error("should not render frontmatter section when none present")
+	}
+	if !strings.Contains(result.HTML, "No Frontmatter") {
+		t.Error("expected body content to be rendered")
+	}
+}
+
+func TestIsDateValue(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		input string
+		want  bool
+	}{
+		{"2024-01-15", true},
+		{"2024-12-31T23:59", true},
+		{"2024-01-15 10:30", true},
+		{"2024-01-15T10:30:45", true},
+		{"not a date", false},
+		{"2024", false},
+		{"2024-1-1", false},
+		{"", false},
+	}
+	for _, tt := range tests {
+		if got := isDateValue(tt.input); got != tt.want {
+			t.Errorf("isDateValue(%q) = %v, want %v", tt.input, got, tt.want)
+		}
+	}
+}
+
+func TestRenderFrontmatterHTML_EmptyMap(t *testing.T) {
+	t.Parallel()
+	html := renderFrontmatterHTML(map[string]interface{}{})
+	if html != "" {
+		t.Error("expected empty string for empty properties map")
+	}
+}
+
+func TestRenderFrontmatterHTML_NilMap(t *testing.T) {
+	t.Parallel()
+	html := renderFrontmatterHTML(nil)
+	if html != "" {
+		t.Error("expected empty string for nil properties map")
+	}
+}
+
+func TestRenderFrontmatterHTML_GenericList(t *testing.T) {
+	t.Parallel()
+	props := map[string]interface{}{
+		"items": []interface{}{"one", "two", "three"},
+	}
+	html := renderFrontmatterHTML(props)
+	if !strings.Contains(html, `class="frontmatter-pill"`) {
+		t.Error("expected frontmatter-pill class for generic list items")
+	}
+	if !strings.Contains(html, "one") || !strings.Contains(html, "two") {
+		t.Error("expected list items in output")
+	}
+}
+
+func TestRenderFrontmatterHTML_TagWithHashPrefix(t *testing.T) {
+	t.Parallel()
+	// Tags that already have # prefix should not get double prefix
+	props := map[string]interface{}{
+		"tags": []interface{}{"#already-prefixed"},
+	}
+	html := renderFrontmatterHTML(props)
+	if strings.Contains(html, "##already-prefixed") {
+		t.Error("should not double the # prefix on tags")
+	}
+	if !strings.Contains(html, "#already-prefixed") {
+		t.Error("expected tag with single # prefix")
+	}
+}
