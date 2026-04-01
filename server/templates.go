@@ -327,6 +327,70 @@ a:hover { color: var(--link-hover); text-decoration: underline; }
 /* Mermaid diagrams */
 .mermaid { margin: 1em 0; text-align: center; }
 
+/* Frontmatter Properties */
+.md-content .frontmatter-properties {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.8rem 1rem;
+  margin-bottom: 1.5em;
+  font-size: 0.9em;
+}
+.md-content .frontmatter-property {
+  display: flex;
+  align-items: baseline;
+  gap: 0.8rem;
+  padding: 0.3rem 0;
+  border-bottom: 1px solid var(--border);
+}
+.md-content .frontmatter-property:last-child { border-bottom: none; }
+.md-content .frontmatter-key {
+  color: var(--text-secondary);
+  font-weight: 600;
+  font-size: 0.85em;
+  min-width: 100px;
+  flex-shrink: 0;
+}
+.md-content .frontmatter-value {
+  color: var(--text);
+  flex: 1;
+  min-width: 0;
+}
+.md-content .frontmatter-empty { color: var(--text-secondary); }
+.md-content .frontmatter-list { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+.md-content .frontmatter-pill {
+  background: var(--bg-tertiary);
+  padding: 0.1em 0.5em;
+  border-radius: 12px;
+  font-size: 0.9em;
+}
+.md-content .frontmatter-tag {
+  background: var(--accent-light);
+  color: var(--accent);
+  padding: 0.1em 0.5em;
+  border-radius: 12px;
+  font-size: 0.9em;
+  font-weight: 500;
+}
+.md-content .frontmatter-alias {
+  background: var(--callout-info);
+  padding: 0.1em 0.5em;
+  border-radius: 12px;
+  font-size: 0.9em;
+}
+.md-content .frontmatter-cssclass {
+  background: var(--bg-tertiary);
+  padding: 0.1em 0.5em;
+  border-radius: 12px;
+  font-size: 0.9em;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+}
+.md-content .frontmatter-date { color: var(--link); }
+.md-content .frontmatter-property input[type="checkbox"] {
+  accent-color: var(--accent);
+  margin: 0;
+}
+
 /* Footnotes */
 .footnotes { margin-top: 2em; border-top: 1px solid var(--border); padding-top: 1em; font-size: 0.9em; }
 

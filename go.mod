@@ -10,4 +10,5 @@ require (
 require (
 	github.com/alecthomas/chroma/v2 v2.2.0 // indirect
 	github.com/dlclark/regexp2 v1.7.0 // indirect
+	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
