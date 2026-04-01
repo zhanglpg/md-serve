@@ -43,24 +43,35 @@ type RenderOptions struct {
 // frontmatterRe matches YAML frontmatter delimited by --- at the start of the file.
 var frontmatterRe = regexp.MustCompile(`(?s)\A---\r?\n(.+?)\r?\n---\r?\n?`)
 
+// wikiLinkYAMLRe matches Obsidian wiki links inside YAML values so they can be
+// quoted before parsing. Unquoted [[...]] is interpreted as nested YAML flow
+// sequences which causes parse failures.
+var wikiLinkYAMLRe = regexp.MustCompile(`\[\[([^\]]+)\]\]`)
+
 // parseFrontmatter extracts YAML frontmatter from the source and returns the
 // parsed properties and the remaining markdown body. If no valid frontmatter
-// is found, properties is nil and body equals source.
+// is found, properties is nil and body equals source. The frontmatter block is
+// always stripped from the body when the regex matches, even if YAML parsing fails.
 func parseFrontmatter(source []byte) (properties map[string]interface{}, body []byte) {
 	m := frontmatterRe.FindSubmatch(source)
 	if m == nil {
 		return nil, source
 	}
-	var props map[string]interface{}
-	if err := yaml.Unmarshal(m[1], &props); err != nil {
-		return nil, source
-	}
+	// Always strip frontmatter from body, even if YAML parsing fails.
 	body = source[len(m[0]):]
+
+	// Pre-process: quote Obsidian wiki links so YAML doesn't treat [[...]] as flow sequences.
+	yamlBytes := wikiLinkYAMLRe.ReplaceAll(m[1], []byte(`"[[$1]]"`))
+
+	var props map[string]interface{}
+	if err := yaml.Unmarshal(yamlBytes, &props); err != nil {
+		return nil, body
+	}
 	return props, body
 }
 
 // renderFrontmatterHTML renders parsed frontmatter properties as a styled HTML section.
-func renderFrontmatterHTML(props map[string]interface{}) string {
+func renderFrontmatterHTML(props map[string]interface{}, opts *RenderOptions) string {
 	if len(props) == 0 {
 		return ""
 	}
@@ -72,7 +83,7 @@ func renderFrontmatterHTML(props map[string]interface{}) string {
 		b.WriteString(`<div class="frontmatter-property">`)
 		b.WriteString(`<span class="frontmatter-key">` + htmlEscaper.Replace(key) + `</span>`)
 		b.WriteString(`<span class="frontmatter-value">`)
-		b.WriteString(renderPropertyValue(key, val))
+		b.WriteString(renderPropertyValue(key, val, opts))
 		b.WriteString(`</span>`)
 		b.WriteString("</div>\n")
 	}
@@ -98,7 +109,7 @@ func sortedKeys(m map[string]interface{}) []string {
 }
 
 // renderPropertyValue renders a single frontmatter property value as HTML.
-func renderPropertyValue(key string, val interface{}) string {
+func renderPropertyValue(key string, val interface{}, opts *RenderOptions) string {
 	if val == nil {
 		return `<span class="frontmatter-empty">—</span>`
 	}
@@ -109,9 +120,9 @@ func renderPropertyValue(key string, val interface{}) string {
 		}
 		return `<input type="checkbox" disabled>`
 	case []interface{}:
-		return renderListValue(key, v)
+		return renderListValue(key, v, opts)
 	case string:
-		return renderStringValue(key, v)
+		return renderStringValue(key, v, opts)
 	case int:
 		return htmlEscaper.Replace(fmt.Sprintf("%d", v))
 	case float64:
@@ -125,7 +136,7 @@ func renderPropertyValue(key string, val interface{}) string {
 }
 
 // renderListValue renders a list property as a series of tags/pills.
-func renderListValue(key string, items []interface{}) string {
+func renderListValue(key string, items []interface{}, opts *RenderOptions) string {
 	if len(items) == 0 {
 		return `<span class="frontmatter-empty">—</span>`
 	}
@@ -133,6 +144,11 @@ func renderListValue(key string, items []interface{}) string {
 	b.WriteString(`<span class="frontmatter-list">`)
 	for _, item := range items {
 		s := fmt.Sprintf("%v", item)
+		// Render wiki links as clickable links
+		if wikiTarget := extractWikiLink(s); wikiTarget != "" {
+			b.WriteString(renderFrontmatterWikilink(wikiTarget, opts))
+			continue
+		}
 		cssClass := "frontmatter-pill"
 		display := htmlEscaper.Replace(s)
 		if key == "tags" {
@@ -151,8 +167,44 @@ func renderListValue(key string, items []interface{}) string {
 	return b.String()
 }
 
-// renderStringValue renders a string property, detecting dates.
-func renderStringValue(key string, s string) string {
+// extractWikiLink returns the target if s is a wiki link like "[[Target]]", or "" otherwise.
+func extractWikiLink(s string) string {
+	if strings.HasPrefix(s, "[[") && strings.HasSuffix(s, "]]") {
+		return s[2 : len(s)-2]
+	}
+	return ""
+}
+
+// renderFrontmatterWikilink renders a wiki link target as a clickable <a> tag in frontmatter.
+func renderFrontmatterWikilink(target string, opts *RenderOptions) string {
+	display := target
+	if strings.Contains(display, "/") {
+		display = filepath.Base(display)
+	}
+	// Handle display alias: [[target|alias]]
+	if idx := strings.Index(target, "|"); idx >= 0 {
+		display = target[idx+1:]
+		target = target[:idx]
+	}
+	var prefix, vaultDir string
+	if opts != nil {
+		prefix = opts.URLPrefix
+		vaultDir = opts.VaultDir
+	}
+	href := resolveWikiHref(vaultDir, target)
+	if href == target && !isAttachment(href) && !strings.HasSuffix(href, ".md") {
+		href += ".md"
+	}
+	href = URLEncodePath(href)
+	return `<a class="wikilink" href="` + prefix + `/` + href + `">` + htmlEscaper.Replace(display) + `</a>`
+}
+
+// renderStringValue renders a string property, detecting dates and wiki links.
+func renderStringValue(key string, s string, opts *RenderOptions) string {
+	// Detect wiki links
+	if wikiTarget := extractWikiLink(s); wikiTarget != "" {
+		return renderFrontmatterWikilink(wikiTarget, opts)
+	}
 	escaped := htmlEscaper.Replace(s)
 	// Detect date/datetime patterns
 	if isDateValue(s) {
@@ -225,7 +277,7 @@ func Markdown(source []byte, opts *RenderOptions) (*Result, error) {
 
 	// Prepend rendered frontmatter properties
 	if props != nil {
-		output = renderFrontmatterHTML(props) + output
+		output = renderFrontmatterHTML(props, opts) + output
 	}
 
 	return &Result{
