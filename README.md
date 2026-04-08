@@ -6,7 +6,7 @@ A lightweight HTTP server that renders Markdown files as a styled website. Suppo
 
 - Serves `.md` and `.markdown` files as styled HTML pages
 - **Multi-vault support** — serve multiple directories as named vaults with a landing page
-- Obsidian syntax support: `[[wikilinks]]`, `==highlights==`, `%%comments%%`, callouts, `![[embeds]]`
+- Obsidian syntax support: `[[wikilinks]]`, `==highlights==`, `%%comments%%`, callouts, `![[embeds]]`, YAML frontmatter properties
 - Wiki links resolve case-insensitively with space/hyphen interoperability (`[[My Page]]` finds `my-page.md`)
 - Callout types: note, tip, info, warning, danger, example, success, failure, bug, abstract, question, quote
 - Table of Contents sidebar generated from headings
