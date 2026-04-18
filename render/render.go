@@ -242,9 +242,14 @@ func Markdown(source []byte, opts *RenderOptions) (*Result, error) {
 	// Extract frontmatter before processing
 	props, body := parseFrontmatter(source)
 
+	// Extract mermaid blocks before any other preprocessing so their contents
+	// (which can include %%...%% and [[...]]) are not rewritten as comments,
+	// wiki links, or sent through syntax highlighting.
+	processed, mermaidBlocks := extractMermaidBlocks(body)
+
 	// Pre-process Obsidian-specific syntax before goldmark parsing.
 	// Embeds are handled here so goldmark does not interfere with ![[...]] syntax.
-	processed := preprocessObsidian(body, opts)
+	processed = preprocessObsidian(processed, opts)
 
 	md := goldmark.New(
 		goldmark.WithExtensions(
@@ -274,6 +279,9 @@ func Markdown(source []byte, opts *RenderOptions) (*Result, error) {
 
 	// Post-process for remaining Obsidian features
 	output := postprocessObsidian(buf.String(), opts)
+
+	// Restore mermaid diagram blocks as <pre class="mermaid"> elements.
+	output = restoreMermaidBlocks(output, mermaidBlocks)
 
 	// Prepend rendered frontmatter properties
 	if props != nil {
@@ -323,6 +331,9 @@ var (
 	calloutStartRe = regexp.MustCompile(`(?m)^<blockquote>\n<p>\[!(\w+)\]\s*(.*)`)
 	// %%comment%%
 	commentRe = regexp.MustCompile(`%%[^%]*%%`)
+	// ```mermaid fenced code block. Captures inner diagram source. Matches at
+	// file start or after a newline so it doesn't fire inside inline spans.
+	mermaidBlockRe = regexp.MustCompile("(?s)(?:\\A|\\n)```mermaid[^\\n]*\\n(.*?)\\n```")
 
 	// htmlEscaper escapes HTML-significant characters in display text.
 	htmlEscaper = strings.NewReplacer(
@@ -342,6 +353,44 @@ var (
 	// excalidrawExt is the file extension for Excalidraw drawings.
 	excalidrawExt = ".excalidraw"
 )
+
+// extractMermaidBlocks finds fenced ```mermaid code blocks, replaces each with
+// a unique placeholder paragraph, and returns the rewritten source plus the
+// captured diagram sources in order. Placeholders are plain alphanumeric tokens
+// surrounded by blank lines so goldmark wraps them in a <p>...</p> that
+// restoreMermaidBlocks can later pattern-match and replace.
+func extractMermaidBlocks(source []byte) ([]byte, []string) {
+	var blocks []string
+	processed := mermaidBlockRe.ReplaceAllFunc(source, func(match []byte) []byte {
+		sub := mermaidBlockRe.FindSubmatch(match)
+		idx := len(blocks)
+		blocks = append(blocks, string(sub[1]))
+		// Preserve a leading newline if the match consumed one so paragraph
+		// boundaries upstream are not disturbed.
+		prefix := ""
+		if len(match) > 0 && match[0] == '\n' {
+			prefix = "\n"
+		}
+		return []byte(prefix + "\n" + mermaidPlaceholder(idx) + "\n")
+	})
+	return processed, blocks
+}
+
+func mermaidPlaceholder(idx int) string {
+	return fmt.Sprintf("MERMAIDBLOCK%dPLACEHOLDER", idx)
+}
+
+// restoreMermaidBlocks swaps mermaid placeholder paragraphs in the rendered
+// HTML back for <pre class="mermaid"> elements containing the HTML-escaped
+// diagram source.
+func restoreMermaidBlocks(html string, blocks []string) string {
+	for i, block := range blocks {
+		placeholder := "<p>" + mermaidPlaceholder(i) + "</p>"
+		replacement := `<pre class="mermaid">` + htmlEscaper.Replace(block) + `</pre>`
+		html = strings.Replace(html, placeholder, replacement, 1)
+	}
+	return html
+}
 
 // preprocessObsidian handles syntax that must be processed before goldmark.
 // Embeds (![[...]]) are converted here to prevent goldmark from interfering

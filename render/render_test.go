@@ -1397,6 +1397,294 @@ func TestRenderFrontmatterHTML_WikiLinks(t *testing.T) {
 	}
 }
 
+func TestMarkdown_MermaidBlock(t *testing.T) {
+	t.Parallel()
+	input := []byte("Before.\n\n```mermaid\ngraph LR\n    A --> B\n```\n\nAfter.")
+	result, err := Markdown(input, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(result.HTML, `<pre class="mermaid">`) {
+		t.Errorf("expected <pre class=\"mermaid\"> wrapper, got %q", result.HTML)
+	}
+	// Diagram content should be HTML-escaped so browser does not parse it as HTML.
+	if !strings.Contains(result.HTML, "A --&gt; B") {
+		t.Errorf("expected escaped arrow in mermaid content, got %q", result.HTML)
+	}
+	// Should not be wrapped in chroma-highlighted <pre><code>.
+	if strings.Contains(result.HTML, "chroma") || strings.Contains(result.HTML, "<code>graph LR") {
+		t.Errorf("mermaid block should skip syntax highlighting, got %q", result.HTML)
+	}
+	// Surrounding paragraphs still render.
+	if !strings.Contains(result.HTML, "<p>Before.</p>") || !strings.Contains(result.HTML, "<p>After.</p>") {
+		t.Errorf("expected surrounding paragraphs preserved, got %q", result.HTML)
+	}
+}
+
+func TestMarkdown_MermaidPreservesObsidianSyntax(t *testing.T) {
+	t.Parallel()
+	// Mermaid comments (%%...%%) and subroutine shapes ([[...]]) must survive
+	// even though Obsidian preprocessing would normally consume them.
+	input := []byte("```mermaid\n%%{init: {'theme':'dark'}}%%\ngraph LR\n    A[[Subroutine]] --> B\n```\n")
+	result, err := Markdown(input, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(result.HTML, "%%{init:") {
+		t.Errorf("expected mermaid directive preserved, got %q", result.HTML)
+	}
+	if !strings.Contains(result.HTML, "A[[Subroutine]]") {
+		t.Errorf("expected [[Subroutine]] preserved (not converted to wikilink), got %q", result.HTML)
+	}
+	if strings.Contains(result.HTML, "wikilink") {
+		t.Errorf("[[...]] inside mermaid must not become a wikilink, got %q", result.HTML)
+	}
+}
+
+func TestMarkdown_MultipleMermaidBlocks(t *testing.T) {
+	t.Parallel()
+	input := []byte("```mermaid\ngraph A\n```\n\nmiddle\n\n```mermaid\ngraph B\n```\n")
+	result, err := Markdown(input, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if strings.Count(result.HTML, `<pre class="mermaid">`) != 2 {
+		t.Errorf("expected 2 mermaid blocks, got %q", result.HTML)
+	}
+	if !strings.Contains(result.HTML, "graph A") || !strings.Contains(result.HTML, "graph B") {
+		t.Errorf("expected both diagrams retained, got %q", result.HTML)
+	}
+}
+
+func TestMarkdown_MermaidAtDocumentStart(t *testing.T) {
+	t.Parallel()
+	// No preceding newline — regex must still match at \A.
+	input := []byte("```mermaid\ngraph LR\n    A --> B\n```\n")
+	result, err := Markdown(input, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(result.HTML, `<pre class="mermaid">`) {
+		t.Errorf("expected mermaid block at document start, got %q", result.HTML)
+	}
+	if strings.Contains(result.HTML, "MERMAIDBLOCK") {
+		t.Errorf("placeholder token leaked into output: %q", result.HTML)
+	}
+}
+
+func TestMarkdown_MermaidAtDocumentEnd(t *testing.T) {
+	t.Parallel()
+	// No trailing newline after closing fence.
+	input := []byte("intro\n\n```mermaid\ngraph LR\n    A --> B\n```")
+	result, err := Markdown(input, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(result.HTML, `<pre class="mermaid">`) {
+		t.Errorf("expected mermaid block at document end, got %q", result.HTML)
+	}
+	if strings.Contains(result.HTML, "MERMAIDBLOCK") {
+		t.Errorf("placeholder token leaked into output: %q", result.HTML)
+	}
+}
+
+func TestMarkdown_MermaidHTMLEscaping(t *testing.T) {
+	t.Parallel()
+	// A diagram containing HTML-ish content must be HTML-escaped in the output
+	// so the browser does not parse it as real markup. This is the first line
+	// of defense against accidental HTML/XSS from diagram source.
+	input := []byte("```mermaid\ngraph LR\n    A[\"<script>alert('x')</script>\"] --> B\n```\n")
+	result, err := Markdown(input, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if strings.Contains(result.HTML, "<script>alert") {
+		t.Errorf("raw <script> must not appear in output, got %q", result.HTML)
+	}
+	if !strings.Contains(result.HTML, "&lt;script&gt;alert") {
+		t.Errorf("expected escaped <script> inside mermaid, got %q", result.HTML)
+	}
+	if !strings.Contains(result.HTML, "&#39;x&#39;") && !strings.Contains(result.HTML, "'x'") {
+		// htmlEscaper does not rewrite apostrophes; just ensure the quoted
+		// string is retained in some form.
+		t.Logf("apostrophe handling: %q", result.HTML)
+	}
+}
+
+func TestMarkdown_MermaidDoesNotAffectOtherCodeBlocks(t *testing.T) {
+	t.Parallel()
+	// A non-mermaid fenced block must still go through goldmark's highlighting
+	// path (producing a <pre> with <code>), not be rewritten as a mermaid block.
+	input := []byte("```go\nfmt.Println(\"hi\")\n```\n\n```mermaid\ngraph LR\n    A --> B\n```\n")
+	result, err := Markdown(input, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if strings.Count(result.HTML, `<pre class="mermaid">`) != 1 {
+		t.Errorf("expected exactly one mermaid block, got %q", result.HTML)
+	}
+	// goldmark-highlighting splits identifiers into <span> tags so we can't
+	// match "fmt.Println" directly; just check for a distinctive token.
+	if !strings.Contains(result.HTML, "Println") {
+		t.Errorf("expected Go code block content retained, got %q", result.HTML)
+	}
+	goStart := strings.Index(result.HTML, "Println")
+	pre := strings.LastIndex(result.HTML[:goStart], "<pre")
+	if pre < 0 || strings.Contains(result.HTML[pre:goStart], `class="mermaid"`) {
+		t.Errorf("go block should not be wrapped as mermaid, got %q", result.HTML)
+	}
+}
+
+func TestMarkdown_MermaidWithFrontmatter(t *testing.T) {
+	t.Parallel()
+	input := []byte("---\ntitle: Diagrams\n---\n\n```mermaid\ngraph LR\n    A --> B\n```\n")
+	result, err := Markdown(input, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(result.HTML, `class="frontmatter-properties"`) {
+		t.Errorf("expected frontmatter rendered alongside mermaid, got %q", result.HTML)
+	}
+	if !strings.Contains(result.HTML, `<pre class="mermaid">`) {
+		t.Errorf("expected mermaid block after frontmatter, got %q", result.HTML)
+	}
+}
+
+func TestMarkdown_MermaidWithLanguageInfo(t *testing.T) {
+	t.Parallel()
+	// Some writers add info after the language token, e.g. ```mermaid theme=dark.
+	input := []byte("```mermaid extra-info\ngraph LR\n    A --> B\n```\n")
+	result, err := Markdown(input, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(result.HTML, `<pre class="mermaid">`) {
+		t.Errorf("expected mermaid block despite trailing info string, got %q", result.HTML)
+	}
+	if !strings.Contains(result.HTML, "A --&gt; B") {
+		t.Errorf("expected diagram content preserved, got %q", result.HTML)
+	}
+}
+
+func TestExtractMermaidBlocks_CountAndContent(t *testing.T) {
+	t.Parallel()
+	source := []byte("intro\n\n```mermaid\ngraph A\n    X --> Y\n```\n\nmiddle\n\n```mermaid\nsequenceDiagram\n    A->>B: hi\n```\n")
+	_, blocks := extractMermaidBlocks(source)
+	if len(blocks) != 2 {
+		t.Fatalf("expected 2 extracted blocks, got %d", len(blocks))
+	}
+	if blocks[0] != "graph A\n    X --> Y" {
+		t.Errorf("block[0] = %q, want %q", blocks[0], "graph A\n    X --> Y")
+	}
+	if blocks[1] != "sequenceDiagram\n    A->>B: hi" {
+		t.Errorf("block[1] = %q, want %q", blocks[1], "sequenceDiagram\n    A->>B: hi")
+	}
+}
+
+func TestExtractMermaidBlocks_EmitsPlaceholders(t *testing.T) {
+	t.Parallel()
+	source := []byte("x\n\n```mermaid\ng\n```\n\ny\n")
+	processed, blocks := extractMermaidBlocks(source)
+	if len(blocks) != 1 {
+		t.Fatalf("expected 1 block, got %d", len(blocks))
+	}
+	p := string(processed)
+	if !strings.Contains(p, "MERMAIDBLOCK0PLACEHOLDER") {
+		t.Errorf("expected placeholder in processed source, got %q", p)
+	}
+	if strings.Contains(p, "```mermaid") {
+		t.Errorf("expected mermaid fence to be removed, got %q", p)
+	}
+}
+
+func TestExtractMermaidBlocks_NoMermaid(t *testing.T) {
+	t.Parallel()
+	source := []byte("# Title\n\n```go\nfmt.Println()\n```\n\nplain text.")
+	processed, blocks := extractMermaidBlocks(source)
+	if len(blocks) != 0 {
+		t.Errorf("expected 0 blocks when no mermaid present, got %d", len(blocks))
+	}
+	if string(processed) != string(source) {
+		t.Errorf("expected source unchanged when no mermaid, got %q", processed)
+	}
+}
+
+func TestMermaidPlaceholder_Unique(t *testing.T) {
+	t.Parallel()
+	// The placeholder tokens must differ per index so restoreMermaidBlocks can
+	// unambiguously match each one back to its diagram.
+	seen := map[string]bool{}
+	for i := 0; i < 10; i++ {
+		p := mermaidPlaceholder(i)
+		if seen[p] {
+			t.Errorf("duplicate placeholder for index %d: %q", i, p)
+		}
+		seen[p] = true
+	}
+}
+
+func TestRestoreMermaidBlocks_ReplacesAndEscapes(t *testing.T) {
+	t.Parallel()
+	html := "<p>before</p>\n<p>" + mermaidPlaceholder(0) + "</p>\n<p>after</p>"
+	restored := restoreMermaidBlocks(html, []string{"graph LR\n    A --> <B>"})
+	if !strings.Contains(restored, `<pre class="mermaid">`) {
+		t.Errorf("expected mermaid wrapper, got %q", restored)
+	}
+	if !strings.Contains(restored, "--&gt; &lt;B&gt;") {
+		t.Errorf("expected angle brackets escaped, got %q", restored)
+	}
+	if strings.Contains(restored, mermaidPlaceholder(0)) {
+		t.Errorf("placeholder should be gone, got %q", restored)
+	}
+}
+
+func TestRestoreMermaidBlocks_NoBlocks(t *testing.T) {
+	t.Parallel()
+	html := "<p>hello</p>"
+	restored := restoreMermaidBlocks(html, nil)
+	if restored != html {
+		t.Errorf("expected unchanged html, got %q", restored)
+	}
+}
+
+func TestMarkdown_MermaidInlineCodeSpansNotAffected(t *testing.T) {
+	t.Parallel()
+	// An inline code span containing the token "```mermaid" should not be
+	// treated as a fenced block. The regex requires a newline before the
+	// opening fence, which backticks inside a paragraph do not provide.
+	input := []byte("This paragraph mentions `mermaid` inline.")
+	result, err := Markdown(input, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if strings.Contains(result.HTML, `<pre class="mermaid">`) {
+		t.Errorf("inline mention of mermaid must not produce a diagram, got %q", result.HTML)
+	}
+}
+
+func TestMarkdown_MermaidWithSurroundingMarkdown(t *testing.T) {
+	t.Parallel()
+	// End-to-end: headings, wiki links, and callouts around a mermaid block
+	// should all render normally, and the block itself should render once.
+	input := []byte("# Heading\n\nSee [[Other Page]].\n\n```mermaid\ngraph LR\n    A --> B\n```\n\n> [!note] Reminder\n> Body text.\n")
+	result, err := Markdown(input, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(result.HTML, `<pre class="mermaid">`) {
+		t.Errorf("expected mermaid block, got %q", result.HTML)
+	}
+	if !strings.Contains(result.HTML, `class="wikilink"`) {
+		t.Errorf("expected wikilink rendered, got %q", result.HTML)
+	}
+	if !strings.Contains(result.HTML, "callout-note") {
+		t.Errorf("expected callout rendered, got %q", result.HTML)
+	}
+	if !strings.Contains(result.HTML, `<h1 id="heading"`) {
+		t.Errorf("expected heading rendered, got %q", result.HTML)
+	}
+}
+
 func TestRenderFrontmatterHTML_WikiLinkStringValue(t *testing.T) {
 	t.Parallel()
 	props := map[string]interface{}{

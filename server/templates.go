@@ -325,7 +325,14 @@ a:hover { color: var(--link-hover); text-decoration: underline; }
 .katex-display { overflow-x: auto; overflow-y: hidden; padding: 0.5em 0; }
 
 /* Mermaid diagrams */
-.mermaid { margin: 1em 0; text-align: center; }
+.md-content pre.mermaid,
+.mermaid {
+  background: transparent;
+  padding: 0;
+  margin: 1em 0;
+  text-align: center;
+  overflow: visible;
+}
 
 /* Frontmatter Properties */
 .md-content .frontmatter-properties {
@@ -553,17 +560,12 @@ document.addEventListener("DOMContentLoaded", function() {
     ],
     throwOnError: false
   });
-  // Render Mermaid diagrams
-  var codeBlocks = document.querySelectorAll('pre > code.language-mermaid');
-  codeBlocks.forEach(function(block) {
-    var pre = block.parentElement;
-    var div = document.createElement('div');
-    div.className = 'mermaid';
-    div.textContent = block.textContent;
-    pre.parentNode.replaceChild(div, pre);
-  });
+  // Render Mermaid diagrams. The renderer emits <pre class="mermaid"> with
+  // HTML-escaped diagram source; mermaid.run() reads each element's
+  // textContent (which decodes entities back to raw syntax) and swaps in SVG.
   if (document.querySelector('.mermaid')) {
-    mermaid.initialize({ startOnLoad: true, theme: document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'default' });
+    mermaid.initialize({ startOnLoad: false, theme: document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'default', securityLevel: 'loose' });
+    mermaid.run({ querySelector: '.mermaid' });
   }
 });
 </script>
