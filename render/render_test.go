@@ -1662,6 +1662,186 @@ func TestMarkdown_MermaidInlineCodeSpansNotAffected(t *testing.T) {
 	}
 }
 
+func TestMarkdown_SVGFencedBlock(t *testing.T) {
+	t.Parallel()
+	input := []byte("Before.\n\n```svg\n<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"60\" height=\"60\"><circle cx=\"30\" cy=\"30\" r=\"25\" fill=\"red\"/></svg>\n```\n\nAfter.")
+	result, err := Markdown(input, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(result.HTML, `<div class="svg-block">`) {
+		t.Errorf("expected svg-block wrapper, got %q", result.HTML)
+	}
+	// SVG markup must be inlined verbatim (not HTML-escaped).
+	if !strings.Contains(result.HTML, `<svg xmlns="http://www.w3.org/2000/svg"`) {
+		t.Errorf("expected raw <svg> markup, got %q", result.HTML)
+	}
+	if !strings.Contains(result.HTML, `<circle cx="30"`) {
+		t.Errorf("expected inner SVG elements raw, got %q", result.HTML)
+	}
+	// Must not go through syntax highlighting.
+	if strings.Contains(result.HTML, `&lt;svg`) || strings.Contains(result.HTML, "<code>") {
+		t.Errorf("svg block should not be syntax-highlighted, got %q", result.HTML)
+	}
+	if !strings.Contains(result.HTML, "<p>Before.</p>") || !strings.Contains(result.HTML, "<p>After.</p>") {
+		t.Errorf("expected surrounding paragraphs, got %q", result.HTML)
+	}
+}
+
+func TestMarkdown_SVGPreservesSpecialChars(t *testing.T) {
+	t.Parallel()
+	// SVG source commonly contains < > & attrs — must all pass through unmodified.
+	input := []byte("```svg\n<svg viewBox=\"0 0 10 10\"><text x=\"0\" y=\"5\">A &amp; B</text></svg>\n```\n")
+	result, err := Markdown(input, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(result.HTML, `<text x="0" y="5">A &amp; B</text>`) {
+		t.Errorf("expected entity-bearing text preserved, got %q", result.HTML)
+	}
+}
+
+func TestMarkdown_MultipleSVGBlocks(t *testing.T) {
+	t.Parallel()
+	input := []byte("```svg\n<svg><circle r=\"1\"/></svg>\n```\n\nmiddle\n\n```svg\n<svg><rect/></svg>\n```\n")
+	result, err := Markdown(input, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if strings.Count(result.HTML, `<div class="svg-block">`) != 2 {
+		t.Errorf("expected 2 svg-block wrappers, got %q", result.HTML)
+	}
+	if !strings.Contains(result.HTML, "<circle") || !strings.Contains(result.HTML, "<rect") {
+		t.Errorf("expected both SVGs retained, got %q", result.HTML)
+	}
+}
+
+func TestMarkdown_SVGAtDocumentStart(t *testing.T) {
+	t.Parallel()
+	input := []byte("```svg\n<svg><circle r=\"1\"/></svg>\n```\n")
+	result, err := Markdown(input, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(result.HTML, `<div class="svg-block">`) {
+		t.Errorf("expected svg block at document start, got %q", result.HTML)
+	}
+	if strings.Contains(result.HTML, "SVGBLOCK") {
+		t.Errorf("placeholder leaked: %q", result.HTML)
+	}
+}
+
+func TestMarkdown_SVGDoesNotAffectMermaidOrCode(t *testing.T) {
+	t.Parallel()
+	input := []byte("```svg\n<svg><circle r=\"1\"/></svg>\n```\n\n```mermaid\ngraph LR\n    A --> B\n```\n\n```go\nx := 1\n```\n")
+	result, err := Markdown(input, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(result.HTML, `<div class="svg-block">`) {
+		t.Errorf("expected svg block, got %q", result.HTML)
+	}
+	if !strings.Contains(result.HTML, `<pre class="mermaid">`) {
+		t.Errorf("expected mermaid block, got %q", result.HTML)
+	}
+	// Go code block should still be highlighted.
+	if !strings.Contains(result.HTML, "background-color:#282a36") {
+		t.Errorf("expected go code highlighted, got %q", result.HTML)
+	}
+}
+
+func TestMarkdown_InlineSVGOutsideFence(t *testing.T) {
+	t.Parallel()
+	// Raw <svg> tags already pass through goldmark's unsafe HTML mode. This
+	// test pins that behavior so a future change to WithUnsafe does not
+	// silently break it.
+	input := []byte("Before.\n\n<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"10\" height=\"10\"><circle cx=\"5\" cy=\"5\" r=\"4\"/></svg>\n\nAfter.")
+	result, err := Markdown(input, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(result.HTML, `<svg xmlns="http://www.w3.org/2000/svg"`) {
+		t.Errorf("expected raw inline svg preserved, got %q", result.HTML)
+	}
+	if strings.Contains(result.HTML, "&lt;svg") {
+		t.Errorf("inline svg must not be escaped, got %q", result.HTML)
+	}
+}
+
+func TestExtractSVGBlocks_CountAndContent(t *testing.T) {
+	t.Parallel()
+	source := []byte("a\n\n```svg\n<svg><circle/></svg>\n```\n\nb\n\n```svg\n<svg><rect/></svg>\n```\n")
+	_, blocks := extractSVGBlocks(source)
+	if len(blocks) != 2 {
+		t.Fatalf("expected 2 extracted blocks, got %d", len(blocks))
+	}
+	if blocks[0] != "<svg><circle/></svg>" {
+		t.Errorf("blocks[0] = %q", blocks[0])
+	}
+	if blocks[1] != "<svg><rect/></svg>" {
+		t.Errorf("blocks[1] = %q", blocks[1])
+	}
+}
+
+func TestExtractSVGBlocks_NoMatch(t *testing.T) {
+	t.Parallel()
+	source := []byte("# Title\n\n```go\nx := 1\n```\n")
+	processed, blocks := extractSVGBlocks(source)
+	if len(blocks) != 0 {
+		t.Errorf("expected 0 blocks, got %d", len(blocks))
+	}
+	if string(processed) != string(source) {
+		t.Errorf("source should be unchanged, got %q", processed)
+	}
+}
+
+func TestRestoreSVGBlocks_ReplacesWithoutEscaping(t *testing.T) {
+	t.Parallel()
+	html := "<p>" + svgPlaceholder(0) + "</p>"
+	restored := restoreSVGBlocks(html, []string{`<svg><path d="M0,0 L10,10"/></svg>`})
+	if !strings.Contains(restored, `<div class="svg-block">`) {
+		t.Errorf("expected svg-block wrapper, got %q", restored)
+	}
+	if !strings.Contains(restored, `<path d="M0,0 L10,10"/>`) {
+		t.Errorf("expected inner svg elements raw, got %q", restored)
+	}
+	if strings.Contains(restored, svgPlaceholder(0)) {
+		t.Errorf("placeholder should be gone, got %q", restored)
+	}
+}
+
+func TestRestoreSVGBlocks_TrimsWhitespace(t *testing.T) {
+	t.Parallel()
+	html := "<p>" + svgPlaceholder(0) + "</p>"
+	restored := restoreSVGBlocks(html, []string{"\n  <svg></svg>  \n"})
+	if !strings.Contains(restored, `<div class="svg-block"><svg></svg></div>`) {
+		t.Errorf("expected whitespace trimmed, got %q", restored)
+	}
+}
+
+func TestSVGPlaceholder_UniquePerIndex(t *testing.T) {
+	t.Parallel()
+	seen := map[string]bool{}
+	for i := 0; i < 10; i++ {
+		p := svgPlaceholder(i)
+		if seen[p] {
+			t.Errorf("duplicate placeholder for %d: %q", i, p)
+		}
+		seen[p] = true
+	}
+}
+
+func TestSVGAndMermaidPlaceholdersDoNotCollide(t *testing.T) {
+	t.Parallel()
+	// Both placeholders live in the same source buffer during preprocessing;
+	// their tokens must be unambiguous.
+	for i := 0; i < 5; i++ {
+		if svgPlaceholder(i) == mermaidPlaceholder(i) {
+			t.Errorf("svg and mermaid placeholders collide at index %d: %q", i, svgPlaceholder(i))
+		}
+	}
+}
+
 func TestMarkdown_MermaidWithSurroundingMarkdown(t *testing.T) {
 	t.Parallel()
 	// End-to-end: headings, wiki links, and callouts around a mermaid block

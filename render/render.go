@@ -242,10 +242,11 @@ func Markdown(source []byte, opts *RenderOptions) (*Result, error) {
 	// Extract frontmatter before processing
 	props, body := parseFrontmatter(source)
 
-	// Extract mermaid blocks before any other preprocessing so their contents
-	// (which can include %%...%% and [[...]]) are not rewritten as comments,
-	// wiki links, or sent through syntax highlighting.
+	// Extract mermaid and SVG blocks before any other preprocessing so their
+	// contents (which can include %%...%%, [[...]], and raw HTML) are not
+	// rewritten or sent through syntax highlighting.
 	processed, mermaidBlocks := extractMermaidBlocks(body)
+	processed, svgBlocks := extractSVGBlocks(processed)
 
 	// Pre-process Obsidian-specific syntax before goldmark parsing.
 	// Embeds are handled here so goldmark does not interfere with ![[...]] syntax.
@@ -282,6 +283,9 @@ func Markdown(source []byte, opts *RenderOptions) (*Result, error) {
 
 	// Restore mermaid diagram blocks as <pre class="mermaid"> elements.
 	output = restoreMermaidBlocks(output, mermaidBlocks)
+
+	// Restore ```svg blocks as raw inline SVG markup wrapped in a container.
+	output = restoreSVGBlocks(output, svgBlocks)
 
 	// Prepend rendered frontmatter properties
 	if props != nil {
@@ -334,6 +338,8 @@ var (
 	// ```mermaid fenced code block. Captures inner diagram source. Matches at
 	// file start or after a newline so it doesn't fire inside inline spans.
 	mermaidBlockRe = regexp.MustCompile("(?s)(?:\\A|\\n)```mermaid[^\\n]*\\n(.*?)\\n```")
+	// ```svg fenced code block. Captures inner SVG markup.
+	svgBlockRe = regexp.MustCompile("(?s)(?:\\A|\\n)```svg[^\\n]*\\n(.*?)\\n```")
 
 	// htmlEscaper escapes HTML-significant characters in display text.
 	htmlEscaper = strings.NewReplacer(
@@ -387,6 +393,41 @@ func restoreMermaidBlocks(html string, blocks []string) string {
 	for i, block := range blocks {
 		placeholder := "<p>" + mermaidPlaceholder(i) + "</p>"
 		replacement := `<pre class="mermaid">` + htmlEscaper.Replace(block) + `</pre>`
+		html = strings.Replace(html, placeholder, replacement, 1)
+	}
+	return html
+}
+
+// extractSVGBlocks finds fenced ```svg code blocks and replaces each with a
+// unique placeholder paragraph, returning the rewritten source and the captured
+// SVG markup in order.
+func extractSVGBlocks(source []byte) ([]byte, []string) {
+	var blocks []string
+	processed := svgBlockRe.ReplaceAllFunc(source, func(match []byte) []byte {
+		sub := svgBlockRe.FindSubmatch(match)
+		idx := len(blocks)
+		blocks = append(blocks, string(sub[1]))
+		prefix := ""
+		if len(match) > 0 && match[0] == '\n' {
+			prefix = "\n"
+		}
+		return []byte(prefix + "\n" + svgPlaceholder(idx) + "\n")
+	})
+	return processed, blocks
+}
+
+func svgPlaceholder(idx int) string {
+	return fmt.Sprintf("SVGBLOCK%dPLACEHOLDER", idx)
+}
+
+// restoreSVGBlocks swaps SVG placeholder paragraphs in the rendered HTML for
+// the original SVG markup wrapped in a centering container. The SVG source is
+// inlined verbatim (not escaped) so the browser parses it as an image rather
+// than literal text.
+func restoreSVGBlocks(html string, blocks []string) string {
+	for i, block := range blocks {
+		placeholder := "<p>" + svgPlaceholder(i) + "</p>"
+		replacement := `<div class="svg-block">` + strings.TrimSpace(block) + `</div>`
 		html = strings.Replace(html, placeholder, replacement, 1)
 	}
 	return html

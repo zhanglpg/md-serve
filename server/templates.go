@@ -334,6 +334,17 @@ a:hover { color: var(--link-hover); text-decoration: underline; }
   overflow: visible;
 }
 
+/* Inline SVG blocks from fenced svg code */
+.md-content .svg-block {
+  margin: 1em 0;
+  text-align: center;
+  overflow-x: auto;
+}
+.md-content .svg-block svg {
+  max-width: 100%;
+  height: auto;
+}
+
 /* Frontmatter Properties */
 .md-content .frontmatter-properties {
   background: var(--bg-secondary);
